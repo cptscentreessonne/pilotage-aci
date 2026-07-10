@@ -5592,6 +5592,11 @@ function openHorsACIFromKanban(type, parentId) {
   }
 }
 
+// État des mois ouverts dans l'agenda (persiste entre les re-rendus)
+var _agendaMonthsOpen = {};
+// Initialiser avec le mois courant ouvert par défaut
+(function() { var now = new Date(); _agendaMonthsOpen[now.getMonth()] = true; })();
+
 function renderAgendaHTML() {
   const today = new Date();
   const todayStr = today.toISOString().slice(0,10);
@@ -5608,12 +5613,13 @@ function renderAgendaHTML() {
     state.actions.forEach(function(a) {
       if (a.echeance && a.statut !== 'archive') add(a.echeance, a);
       (a.tasks||[]).forEach(function(t) {
-        if (t.due && !t.done) add(t.due, Object.assign({}, a, {
+        if (t.due) add(t.due, Object.assign({}, a, {
           _isTask: true,
           _taskLabel: t.label,
           _taskOwner: t.owner || '',
           _actionId: a.id,
-          _taskId: t.id
+          _taskId: t.id,
+          _taskDone: !!t.done
         }));
       });
     });
@@ -5631,7 +5637,7 @@ function renderAgendaHTML() {
       if (p.statut === 'archive') return;
       if (p.fin) add(p.fin, { id:p.id, titre:'🚀 '+p.titre, _isHorsACI:true, _horsAciType:'projet', _horsAciParentId:p.id, echeance:p.fin, statut:p.statut||'a_lancer', owner:p.responsable||'' });
       (p.tasks||[]).forEach(function(t) {
-        if (t.due && !t.done) add(t.due, { id:'pt_'+t.id, titre:'🚀 '+t.label, _isHorsACI:true, _horsAciType:'projet', _horsAciParentId:p.id, echeance:t.due, statut:'a_lancer', owner:t.owner||'', _parentLabel:p.titre });
+        if (t.due) add(t.due, { id:'pt_'+t.id, titre:'🚀 '+t.label, _isHorsACI:true, _horsAciType:'projet', _horsAciParentId:p.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:p.titre, _taskDone:!!t.done });
       });
     });
     // Hors ACI : évènements (date + tâches)
@@ -5639,13 +5645,13 @@ function renderAgendaHTML() {
       if (e.statut === 'archive') return;
       if (e.date) add(e.date, { id:e.id, titre:'🎉 '+(e.titre||e.nom||'Évènement'), _isHorsACI:true, _horsAciType:'evenement', _horsAciParentId:e.id, echeance:e.date, statut:e.statut||'a_lancer', owner:e.responsable||'' });
       (e.tasks||[]).forEach(function(t) {
-        if (t.due && !t.done) add(t.due, { id:'et_'+t.id, titre:'🎉 '+t.label, _isHorsACI:true, _horsAciType:'evenement', _horsAciParentId:e.id, echeance:t.due, statut:'a_lancer', owner:t.owner||'', _parentLabel:e.titre||e.nom||'' });
+        if (t.due) add(t.due, { id:'et_'+t.id, titre:'🎉 '+t.label, _isHorsACI:true, _horsAciType:'evenement', _horsAciParentId:e.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:e.titre||e.nom||'', _taskDone:!!t.done });
       });
     });
     // Hors ACI : gestion interne (tâches avec échéance)
     (state.orga_interne||[]).forEach(function(cat) {
       (cat.tasks||[]).forEach(function(t) {
-        if (t.due && !t.done) add(t.due, { id:'ot_'+t.id, titre:'🏢 '+t.label, _isHorsACI:true, _horsAciType:'orga', _horsAciParentId:cat.id, echeance:t.due, statut:'a_lancer', owner:t.owner||'', _parentLabel:cat.label });
+        if (t.due) add(t.due, { id:'ot_'+t.id, titre:'🏢 '+t.label, _isHorsACI:true, _horsAciType:'orga', _horsAciParentId:cat.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:cat.label, _taskDone:!!t.done });
       });
     });
     // Évènements de Planification des actions ACI (avec date définie)
@@ -5817,12 +5823,14 @@ function renderAgendaHTML() {
             +'title="' + escapeHtml(label) + '">'
             + escapeHtml(label.slice(0,20)) + '</div>';
         } else if (a._isTask) {
+          var taskIsDone = !!a._taskDone;
           gridHTML += '<div draggable="true" '
             +'ondragstart="agendaTaskDragStart(event,\'' + a._actionId + '\',\'' + a._taskId + '\')" '
             +'ondragend="agendaJalonDragEnd(event)" '
             +'onclick="event.stopPropagation();openTaskDetailModal(\'' + a._actionId + '\',\'' + a._taskId + '\')" '
             +'style="font-size:9px;background:' + bgColor + ';color:' + textColor + ';border-radius:3px;'
-            +'padding:1px 3px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" '
+            +'padding:1px 3px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer'
+            +(taskIsDone ? ';opacity:.5;text-decoration:line-through' : '') + '" '
             +'title="' + escapeHtml(label) + '">'
             + escapeHtml(label.slice(0,20)) + '</div>';
         } else if (a._isHorsACI) {
@@ -5901,7 +5909,9 @@ function renderAgendaHTML() {
       if (key.startsWith(monthStr)) monthItemCount += byDate[key].length;
     }
 
-    html += '<details ' + (isCurrentMonth ? 'open' : '') + ' style="margin-bottom:6px">';
+    var isMonthOpen = _agendaMonthsOpen[m] === true;
+
+    html += '<details ' + (isMonthOpen ? 'open' : '') + ' id="agenda-month-' + m + '" ontoggle="onAgendaMonthToggle(' + m + ',this.open)" style="margin-bottom:6px">';
     html += '<summary style="padding:10px 16px;background:'
       + (isCurrentMonth ? 'linear-gradient(135deg,var(--teal-d),var(--teal))' : 'var(--bg-soft)')
       + ';border-radius:8px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;'
@@ -5913,7 +5923,7 @@ function renderAgendaHTML() {
         + 'background:' + (isCurrentMonth ? 'rgba(255,255,255,0.2)' : 'var(--teal-p)') + ';'
         + 'color:' + (isCurrentMonth ? 'white' : 'var(--teal-d)') + '">' + monthItemCount + ' élément' + (monthItemCount>1?'s':'') + '</span>';
     }
-    html += '<span style="margin-left:auto;font-size:14px;opacity:.7">' + (isCurrentMonth ? '▾' : '▸') + '</span>';
+    html += '<span style="margin-left:auto;font-size:14px;opacity:.7">' + (isMonthOpen ? '▾' : '▸') + '</span>';
     html += '</summary>';
     html += '<div style="padding:12px;background:var(--surface);border:1px solid var(--line);border-top:none;border-radius:0 0 8px 8px">';
     html += renderMonthGrid(agendaYear, m);
@@ -5927,6 +5937,12 @@ function renderAgendaHTML() {
 
 // Filtre agenda par attribution
 var _agendaFilter = '';
+
+// Mémorise l'ouverture/fermeture d'un mois dans l'agenda
+function onAgendaMonthToggle(monthIdx, isOpen) {
+  _agendaMonthsOpen[monthIdx] = isOpen;
+}
+
 function setAgendaFilter(val) {
   _agendaFilter = val;
   // Mettre à jour le style des boutons
@@ -5979,24 +5995,24 @@ function openDayPanel(dateStr) {
     if (a.statut === 'archive') return;
     if (a.echeance === dateStr) allItems.push({ label: a.titre, owner: '', type: 'aci', id: a.id });
     (a.tasks||[]).forEach(function(t) {
-      if (t.due === dateStr && !t.done) allItems.push({ label: t.label, owner: t.owner||'', type: 'task', actionId: a.id, taskId: t.id, note: t.note||'' });
+      if (t.due === dateStr) allItems.push({ label: t.label, owner: t.owner||'', type: 'task', actionId: a.id, taskId: t.id, note: t.note||'', done: !!t.done });
     });
   });
   (state.projets||[]).forEach(function(p) {
     if (p.fin === dateStr) allItems.push({ label: '🚀 '+p.titre, owner: p.responsable||'', type: 'horsaci', horsAciType:'projet', parentId:p.id });
     (p.tasks||[]).forEach(function(t) {
-      if (t.due === dateStr && !t.done) allItems.push({ label: '🚀 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'projet', parentId:p.id, taskId:t.id });
+      if (t.due === dateStr) allItems.push({ label: '🚀 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'projet', parentId:p.id, taskId:t.id, done: !!t.done });
     });
   });
   (state.evenements||[]).forEach(function(e) {
     if (e.date === dateStr) allItems.push({ label: '🎉 '+(e.titre||e.nom||'Évènement'), owner: e.responsable||'', type: 'horsaci', horsAciType:'evenement', parentId:e.id });
     (e.tasks||[]).forEach(function(t) {
-      if (t.due === dateStr && !t.done) allItems.push({ label: '🎉 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'evenement', parentId:e.id, taskId:t.id });
+      if (t.due === dateStr) allItems.push({ label: '🎉 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'evenement', parentId:e.id, taskId:t.id, done: !!t.done });
     });
   });
   (state.orga_interne||[]).forEach(function(cat) {
     (cat.tasks||[]).forEach(function(t) {
-      if (t.due === dateStr && !t.done) allItems.push({ label: '🏢 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'orga', parentId:cat.id, taskId:t.id });
+      if (t.due === dateStr) allItems.push({ label: '🏢 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'orga', parentId:cat.id, taskId:t.id, done: !!t.done });
     });
   });
   // Évènements de Planification des actions ACI
@@ -6055,20 +6071,22 @@ function openDayPanel(dateStr) {
                 ? 'openProjetModal(\'' + item.projetId + '\')'
                 : 'openHorsACITaskModal(\'' + item.horsAciType + '\',\'' + item.parentId + '\',\'' + (item.taskId||'') + '\')';
 
+      var itemDone = !!item.done;
       html += '<div onclick="' + clickFn + '" style="display:flex;align-items:center;gap:10px;padding:8px 10px;'
         +'border-radius:7px;border:1px solid var(--line-soft);margin-bottom:5px;cursor:pointer;'
-        +'background:var(--surface)" '
-        +'onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'var(--surface)\'">';
+        +'background:' + (itemDone ? 'var(--bg-soft)' : 'var(--surface)') + ';opacity:' + (itemDone ? '.6' : '1') + '" '
+        +'onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'' + (itemDone ? 'var(--bg-soft)' : 'var(--surface)') + '\'">';
       html += '<span style="width:10px;height:10px;border-radius:50%;background:' + dotBg + ';flex-shrink:0"></span>';
+      if (itemDone) html += '<span style="font-size:11px;color:var(--ok);margin-right:2px">✅</span>';
       if (item.owner) html += '<span style="font-size:11px;font-weight:700;color:' + (col?col.text:'var(--ink-mute)') + ';min-width:44px">' + escapeHtml(item.owner.slice(0,7)) + '</span>';
       else html += '<span style="min-width:44px"></span>';
       if (item.note && item.note.trim()) {
         html += '<span style="flex:1;display:flex;flex-direction:column;gap:1px">'
-          + '<span style="font-size:13px;color:var(--ink)">' + escapeHtml(item.label) + '</span>'
+          + '<span style="font-size:13px;color:var(--ink);' + (itemDone ? 'text-decoration:line-through' : '') + '">' + escapeHtml(item.label) + '</span>'
           + '<span style="font-size:10.5px;color:var(--ink-mute);display:flex;gap:4px"><span>📝</span><span>' + escapeHtml(item.note) + '</span></span>'
           + '</span>';
       } else {
-        html += '<span style="flex:1;font-size:13px;color:var(--ink)">' + escapeHtml(item.label) + '</span>';
+        html += '<span style="flex:1;font-size:13px;color:var(--ink);' + (itemDone ? 'text-decoration:line-through' : '') + '">' + escapeHtml(item.label) + '</span>';
       }
       html += '<span style="font-size:11px;color:var(--ink-mute)">›</span>';
       html += '</div>';
