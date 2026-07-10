@@ -5157,8 +5157,8 @@ function renderPlanning() {
       </div>
       ` : ''}
       <div style="display:flex;gap:4px">
-        <button class="btn btn-sm ${planningView==='kanban'?'btn-primary':''}" onclick="setPlanningView('kanban')">🗂 Kanban</button>
         <button class="btn btn-sm ${planningView==='agenda'?'btn-primary':''}" onclick="setPlanningView('agenda')">📅 Agenda</button>
+        <button class="btn btn-sm ${planningView==='kanban'?'btn-primary':''}" onclick="setPlanningView('kanban')">🗂 Kanban</button>
       </div>
       <button class="btn btn-sm" onclick="openCommuModal()"
         style="background:var(--m-qual-p);color:var(--m-qual);border-color:#d6cdec;font-weight:600">
@@ -5170,7 +5170,7 @@ function renderPlanning() {
   renderPlanningInner();
 }
 
-let planningView = 'kanban';
+let planningView = 'agenda';
 function setPlanningView(v) { planningView = v; renderPlanning(); }
 
 function renderPlanningInner() {
@@ -5236,6 +5236,8 @@ function renderKanbanHTML() {
     (a.tasks||[]).forEach(function(t) {
       // Statut stocké sur la tâche, sinon calculé
       var s = t.kanbanStatut || (t.done ? 'realise' : (t.due && t.due < new Date().toISOString().slice(0,10) ? 'en_cours' : 'a_lancer'));
+      var stDone = (t.subtasks||[]).filter(function(st){return st.done;}).length;
+      var stTotal = (t.subtasks||[]).length;
       taskCards.push({
         id: 'task_' + a.id + '_' + t.id,
         titre: t.label,
@@ -5245,7 +5247,9 @@ function renderKanbanHTML() {
         owner: t.owner || '',
         _isTask: true,
         _actionId: a.id,
-        _taskId: t.id
+        _taskId: t.id,
+        _subtasksDone: stDone,
+        _subtasksTotal: stTotal
       });
     });
   });
@@ -5263,7 +5267,9 @@ function renderKanbanHTML() {
         _isHorsACI: true,
         _horsAciType: 'projet',
         _horsAciParentId: p.id,
-        _parentLabel: p.titre
+        _parentLabel: p.titre,
+        _subtasksDone: (t.subtasks||[]).filter(function(st){return st.done;}).length,
+        _subtasksTotal: (t.subtasks||[]).length
       });
     });
   });
@@ -5280,7 +5286,9 @@ function renderKanbanHTML() {
         _isHorsACI: true,
         _horsAciType: 'evenement',
         _horsAciParentId: e.id,
-        _parentLabel: e.titre || e.nom || 'Évènement'
+        _parentLabel: e.titre || e.nom || 'Évènement',
+        _subtasksDone: (t.subtasks||[]).filter(function(st){return st.done;}).length,
+        _subtasksTotal: (t.subtasks||[]).length
       });
     });
   });
@@ -5296,12 +5304,42 @@ function renderKanbanHTML() {
         _isHorsACI: true,
         _horsAciType: 'orga',
         _horsAciParentId: cat.id,
-        _parentLabel: cat.label
+        _parentLabel: cat.label,
+        _subtasksDone: (t.subtasks||[]).filter(function(st){return st.done;}).length,
+        _subtasksTotal: (t.subtasks||[]).length
       });
     });
   });
 
   var allCards = [...state.actions, ...commuCards, ...jalonCards, ...taskCards, ...horsAciCards];
+
+  // Ajouter les évènements de planification sans date comme cartes Kanban
+  state.actions.forEach(function(a) {
+    if (a.statut === 'archive') return;
+    var plan = a.planif;
+    if (!plan || !plan.evenements) return;
+    plan.evenements.forEach(function(ev) {
+      if (ev.date) return; // les datés vont dans l'agenda
+      var s = 'a_lancer';
+      var evTasksDone = (ev.tasks||[]).filter(function(t){return t.done;}).length;
+      var evTasksTotal = (ev.tasks||[]).length;
+      if (evTasksTotal > 0 && evTasksDone === evTasksTotal) s = 'realise';
+      else if (evTasksDone > 0) s = 'en_cours';
+      allCards.push({
+        id: 'planif_' + a.id + '_' + ev.id,
+        titre: ev.titre || ev.type || 'Évènement à planifier',
+        statut: s,
+        echeance: '',
+        mission: a.mission,
+        owner: (ev.animatrices||[])[0] || '',
+        _isTask: true,
+        _actionId: a.id,
+        _taskId: (ev.tasks||[])[0] ? (ev.tasks[0].id||'') : '',
+        _subtasksDone: 0,
+        _subtasksTotal: 0
+      });
+    });
+  });
 
   // Appliquer filtre attribution
   if (filterAttr) {
@@ -5390,6 +5428,7 @@ function renderKanbanHTML() {
         ${subLabel}
         <div style="${titreStyle}">${escapeHtml(a.titre)}${ownerBadge}</div>
         ${a.echeance ? '<div style="font-size:10.5px;color:' + (daysUntil(a.echeance)<0?'var(--danger)':'var(--ink-mute)') + '">📅 ' + fmt.date(a.echeance) + '</div>' : ''}
+        ${(isTask || isHorsACI) && a._subtasksTotal ? '<div style="font-size:10px;color:var(--teal-d);margin-top:3px">☑ ' + (a._subtasksDone||0) + '/' + a._subtasksTotal + ' sous-tâches</div>' : ''}
         ${isACI ? `
         <div style="margin-top:6px">
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink-mute);margin-bottom:2px">
@@ -6942,9 +6981,22 @@ function renderModeOp() {
   el.innerHTML = html;
 }
 
+// Filtre projets par coordinatrice
+var _projetFilterCoord = '';
+
 function renderProjets() {
   const el = document.getElementById('view-projets');
   const projets = state.projets || [];
+
+  var filterCoord = _projetFilterCoord || '';
+
+  // Filtrer les projets
+  var filteredProjets = projets;
+  if (filterCoord) {
+    filteredProjets = projets.filter(function(p) {
+      return (p.responsable || '') === filterCoord;
+    });
+  }
 
   var html = ''
     + '<div class="flex items-center gap-12 mb-16 flex-wrap">'
@@ -6952,16 +7004,32 @@ function renderProjets() {
     + '<p style="font-size:12.5px;color:var(--ink-mute);flex-basis:100%;margin:-8px 0 4px">'
     + 'Actions territoriales menées par la CPTS CE en dehors de la convention ACI — avec budget propre, partenaires et livrables.'
     + '</p><div class="spacer"></div>'
+    + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+    + '<span style="font-size:11.5px;font-weight:600;color:var(--ink-mute)">Filtrer :</span>';
+  var coordChips = [
+    { val: '', label: 'Toutes', bg: 'var(--bg-soft)', text: 'var(--ink-soft)' },
+    { val: 'Yayi', label: 'Yayi', bg: 'var(--col-yayi)', text: '#1e5c2a' },
+    { val: 'Yoanna', label: 'Yoanna', bg: 'var(--col-yoanna)', text: '#5a3a8a' },
+    { val: 'Margaux', label: 'Margaux', bg: 'var(--col-margaux)', text: '#7a3a00' }
+  ];
+  coordChips.forEach(function(c) {
+    var active = filterCoord === c.val;
+    html += '<button onclick="_projetFilterCoord=\'' + c.val + '\';renderProjets()" '
+      + 'style="padding:4px 11px;border-radius:14px;border:2px solid ' + c.bg + ';background:' + c.bg + ';'
+      + 'color:' + c.text + ';font-size:11.5px;font-weight:600;cursor:pointer;'
+      + 'outline:' + (active ? '2px solid var(--ink)' : 'none') + ';outline-offset:2px">' + c.label + '</button>';
+  });
+  html += '</div>'
     + '<button class="btn btn-primary" onclick="openProjetModal()">＋ Nouveau projet</button>'
     + '</div>';
 
-  if (!projets.length) {
-    html += '<div class="empty-state card"><h3>Aucun projet hors ACI</h3><p>Créez votre premier projet territorial avec le bouton ci-dessus.</p></div>';
+  if (!filteredProjets.length) {
+    html += '<div class="empty-state card"><h3>' + (filterCoord ? 'Aucun projet attribué à ' + escapeHtml(filterCoord) : 'Aucun projet hors ACI') + '</h3><p>' + (filterCoord ? 'Changez le filtre ou créez un nouveau projet.' : 'Créez votre premier projet territorial avec le bouton ci-dessus.') + '</p></div>';
     el.innerHTML = html;
     return;
   }
 
-  projets.forEach(function(p) {
+  filteredProjets.forEach(function(p) {
     html += renderProjetCard(p);
   });
   el.innerHTML = html;
@@ -7177,6 +7245,13 @@ function saveProjet() {
       tasks: (ev.tasks||[]).filter(function(t){ return (t.label||'').trim(); }),
       checklistPrep: (ev.checklistPrep||[]).filter(function(c){ return (c.label||'').trim(); })
     };
+  });
+  // Tri chronologique automatique des évènements
+  evenements.sort(function(a, b) {
+    if (!a.date && !b.date) return 0;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return a.date < b.date ? -1 : 1;
   });
   // Agréger les tâches des évènements dans tasks (pour agenda/kanban)
   evenements.forEach(function(ev) {
@@ -8459,21 +8534,37 @@ function migrateJalonToFiche(cat, cibleId, taskData) {
   if (cat === 'aci') {
     var action = (state.actions||[]).find(function(a){ return a.id === cibleId; });
     if (!action) return false;
-    // Rattachement éventuel à un évènement de l'action
+    // Rattachement éventuel à un évènement existant de l'action
     var evtId = document.getElementById('j-rattach-evt') ? document.getElementById('j-rattach-evt').value : '';
     if (evtId && action.planif && action.planif.evenements) {
       var ev = action.planif.evenements.find(function(e){ return e.id === evtId; });
       if (ev) {
         if (!ev.tasks) ev.tasks = [];
         ev.tasks.push(newTask);
-        // Réagréger les tâches de l'action
         reaggregateActionTasks(action);
         return true;
       }
     }
-    // Sinon, tâche directement sur l'action
-    if (!action.tasks) action.tasks = [];
-    action.tasks.push(newTask);
+    // Sinon, créer un ÉVÈNEMENT dans la planification de l'action
+    // (pour qu'il apparaisse dans l'Agenda et la fiche mission)
+    if (!action.planif) action.planif = { evenements: [] };
+    if (!action.planif.evenements) action.planif.evenements = [];
+    var newEvt = {
+      id: makeId('evt'),
+      titre: taskData.titre,
+      type: '',
+      date: taskData.date || '',
+      lieu: '',
+      animatrices: taskData.attribue ? [taskData.attribue] : [],
+      journeePrev: false,
+      prevThemes: [],
+      prevActionIds: [],
+      prevPartenaires: '',
+      tasks: [newTask],
+      checklistPrep: []
+    };
+    action.planif.evenements.push(newEvt);
+    reaggregateActionTasks(action);
     return true;
   } else if (cat === 'projet') {
     var projet = (state.projets||[]).find(function(p){ return p.id === cibleId; });
@@ -8489,8 +8580,24 @@ function migrateJalonToFiche(cat, cibleId, taskData) {
         return true;
       }
     }
-    if (!projet.tasks) projet.tasks = [];
-    projet.tasks.push(newTask);
+    // Créer un évènement dans la planification du projet
+    if (!projet.planif.evenements) projet.planif.evenements = [];
+    var newPEvt = {
+      id: makeId('evt'),
+      titre: taskData.titre,
+      type: '',
+      date: taskData.date || '',
+      lieu: '',
+      animatrices: taskData.attribue ? [taskData.attribue] : [],
+      journeePrev: false,
+      prevThemes: [],
+      prevActionIds: [],
+      prevPartenaires: '',
+      tasks: [newTask],
+      checklistPrep: []
+    };
+    projet.planif.evenements.push(newPEvt);
+    reaggregateProjetTasks(projet);
     return true;
   } else if (cat === 'evenement') {
     var evenement = (state.evenements||[]).find(function(e){ return e.id === cibleId; });
@@ -8502,7 +8609,6 @@ function migrateJalonToFiche(cat, cibleId, taskData) {
     var ocat = (state.orga_interne||[]).find(function(c){ return c.id === cibleId; });
     if (!ocat) return false;
     if (!ocat.tasks) ocat.tasks = [];
-    // Les tâches orga utilisent la même structure
     ocat.tasks.push(newTask);
     return true;
   }
@@ -10065,6 +10171,14 @@ function saveAction() {
       tasks: (ev.tasks||[]).filter(function(t){ return (t.label||'').trim(); }),
       checklistPrep: (ev.checklistPrep||[]).filter(function(c){ return (c.label||'').trim(); })
     };
+  });
+
+  // Tri chronologique automatique des évènements (datés en premier, par date croissante)
+  evenements.sort(function(a, b) {
+    if (!a.date && !b.date) return 0;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return a.date < b.date ? -1 : 1;
   });
 
   // Agréger toutes les tâches des évènements dans a.tasks (pour le calcul d'avancement
