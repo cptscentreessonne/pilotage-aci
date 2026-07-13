@@ -1308,13 +1308,17 @@ a:hover { text-decoration: underline; }
           <div id="evt-list"></div>
           <button type="button" class="btn btn-sm" onclick="addEvtBlock()" style="background:var(--teal-p);color:var(--teal-d);border-color:var(--teal-b)">＋ Ajouter un évènement</button>
 
+          <div class="form-section-title">Réunions et tâches <small>Réunions, visios, tâches simples — sans formaliser un évènement complet</small></div>
+          <div id="reunion-list"></div>
+          <button type="button" class="btn btn-sm" onclick="addReunionBlock('action')" style="background:var(--col-yoanna);color:#5a3a8a;border-color:#c9b3e0">＋ Ajouter une réunion / tâche</button>
+
           <div class="form-section-title">Documents & liens <small>CR, conventions, supports partagés sur Drive…</small></div>
           <div id="links-list"></div>
           <button type="button" class="btn btn-sm" onclick="addLink()">＋ Ajouter un document</button>
 
           <!-- Évènements liés (propagation, lecture seule) -->
           <div id="evt-lies-section" style="display:none">
-            <div class="form-section-title">Évènements liés <small>Journées prévention d'autres missions qui concernent cette mission</small></div>
+            <div class="form-section-title">Éléments liés <small>Évènements, réunions et tâches d'autres fiches qui concernent cette mission</small></div>
             <div id="evt-lies-list"></div>
           </div>
 
@@ -1673,13 +1677,17 @@ a:hover { text-decoration: underline; }
           <div id="projet-evt-list"></div>
           <button type="button" class="btn btn-sm" onclick="addProjetEvtBlock()" style="background:var(--teal-p);color:var(--teal-d);border-color:var(--teal-b)">＋ Ajouter un évènement</button>
 
+          <div class="form-section-title">Réunions et tâches <small>Réunions, visios, tâches simples — sans formaliser un évènement complet</small></div>
+          <div id="projet-reunion-list"></div>
+          <button type="button" class="btn btn-sm" onclick="addReunionBlock('projet')" style="background:var(--col-yoanna);color:#5a3a8a;border-color:#c9b3e0">＋ Ajouter une réunion / tâche</button>
+
           <div class="form-section-title">Documents & livrables <small>Lien Drive, URL, convention, livrable attendu…</small></div>
           <div id="projet-links-list"></div>
           <button type="button" class="btn btn-sm" onclick="addProjetLink()">＋ Ajouter un document / livrable</button>
 
           <!-- Évènements liés (propagation depuis actions ACI / autres projets) -->
           <div id="projet-evt-lies-section" style="display:none">
-            <div class="form-section-title">Évènements liés <small>Journées prévention d'autres fiches qui concernent ce projet</small></div>
+            <div class="form-section-title">Éléments liés <small>Évènements, réunions et tâches d'autres fiches qui concernent ce projet</small></div>
             <div id="projet-evt-lies-list"></div>
           </div>
         </div>
@@ -1791,6 +1799,10 @@ a:hover { text-decoration: underline; }
           <div id="evenement-tasks-list"></div>
           <button type="button" class="btn btn-sm" onclick="addEvenementTask()">＋ Ajouter une tâche</button>
           <button type="button" class="btn btn-sm" onclick="addRetroplanningAuto()" style="margin-left:6px;background:var(--teal-p);color:var(--teal-d);border-color:var(--teal-b)">📅 Générer rétroplanning auto</button>
+
+          <div class="form-section-title">Réunions et tâches <small>Réunions, visios, tâches simples avec attribution multiple</small></div>
+          <div id="evenement-reunion-list"></div>
+          <button type="button" class="btn btn-sm" onclick="addReunionBlock('evenement')" style="background:var(--col-yoanna);color:#5a3a8a;border-color:#c9b3e0">＋ Ajouter une réunion / tâche</button>
 
           <div class="form-section-title">Archives documentaires <small>Affiches, programmes, supports de comm' — nom + lien Drive</small></div>
           <div id="evenement-links-list"></div>
@@ -3193,6 +3205,25 @@ function loadState() {
             }
             if (!Array.isArray(a.coOwners)) a.coOwners = [];
             if (!a.attributionRoles) a.attributionRoles = {};
+            // Normaliser planif.reunions (sous-section Réunions et tâches)
+            if (!a.planif) a.planif = { evenements: [] };
+            if (!Array.isArray(a.planif.reunions)) a.planif.reunions = [];
+          });
+        }
+
+        // Normaliser planif.reunions pour projets et évènements hors ACI
+        if (Array.isArray(parsed.projets)) {
+          parsed.projets.forEach(function(p) {
+            if (!p) return;
+            if (!p.planif) p.planif = { evenements: [] };
+            if (!Array.isArray(p.planif.reunions)) p.planif.reunions = [];
+          });
+        }
+        if (Array.isArray(parsed.evenements)) {
+          parsed.evenements.forEach(function(e) {
+            if (!e) return;
+            if (!e.planif) e.planif = { evenements: [] };
+            if (!Array.isArray(e.planif.reunions)) e.planif.reunions = [];
           });
         }
 
@@ -7214,6 +7245,7 @@ function openProjetModal(id) {
       };
     });
     renderProjetEvtBlocks();
+    loadReunionBlocks(p.planif, 'projet');
     renderProjetEvtLies(p.id);
   } else {
     ['p-id','p-titre','p-description','p-debut','p-fin','p-budget','p-financement-detail'].forEach(id => {
@@ -7226,6 +7258,8 @@ function openProjetModal(id) {
     });
     _projetEvtBlocks = [];
     renderProjetEvtBlocks();
+    _reunionBlocks = []; _reunionContext = 'projet';
+    renderReunionBlocks();
     var pels = document.getElementById('projet-evt-lies-section'); if (pels) pels.style.display = 'none';
   }
   switchProjetTab('descriptif');
@@ -7276,6 +7310,19 @@ function saveProjet() {
     (ev.tasks||[]).forEach(function(t) { tasks.push(Object.assign({}, t, { _evtId: ev.id, _evtTitre: ev.titre })); });
   });
 
+  // Agréger les réunions/tâches
+  var projetReunions = exportReunionBlocks();
+  projetReunions.forEach(function(r) {
+    tasks.push({
+      id: r.id, label: r.titre,
+      owner: (r.coords && r.coords.length === 1) ? r.coords[0] : ((r.coords && r.coords.length >= 2) ? 'Ensemble' : ''),
+      _coords: (r.coords||[]).slice(),
+      due: r.date || '', note: r.note || '', done: !!r.done,
+      doneAt: r.done ? (new Date().toISOString().slice(0,10)) : '',
+      subtasks: (r.subtasks||[]).slice(), _isReunion: true, createdAt: Date.now()
+    });
+  });
+
   const links = [];
   document.querySelectorAll('#projet-links-list .plnk-row').forEach(row => {
     const label = row.querySelector('.plnk-label').value.trim();
@@ -7296,7 +7343,7 @@ function saveProjet() {
     budget: parseFloat(document.getElementById('p-budget').value) || 0,
     financement_detail: document.getElementById('p-financement-detail').value.trim(),
     partenaires, livrables, tasks, links,
-    planif: { evenements: evenements },
+    planif: { evenements: evenements, reunions: projetReunions },
     updatedAt: Date.now(),
     createdAt: existingId ? ((state.projets||[]).find(x=>x.id===existingId)||{}).createdAt || Date.now() : Date.now()
   };
@@ -7520,6 +7567,7 @@ function openEvenementModal(id) {
     (e.tasks||[]).forEach(t => appendEvenementTaskRow(t));
     const lkl = document.getElementById('evenement-links-list'); lkl.innerHTML = '';
     (e.links||[]).forEach(lk => appendEvenementLinkRow(lk));
+    loadReunionBlocks(e.planif, 'evenement');
   } else {
     ['e-id','e-titre','e-description','e-date','e-heure','e-lieu','e-participants','e-budget','e-financement'].forEach(eid => {
       const el = document.getElementById(eid); if(el) el.value = '';
@@ -7529,6 +7577,8 @@ function openEvenementModal(id) {
     ['evenement-tasks-list','evenement-links-list'].forEach(eid => {
       const el = document.getElementById(eid); if(el) el.innerHTML = '';
     });
+    _reunionBlocks = []; _reunionContext = 'evenement';
+    renderReunionBlocks();
   }
   switchEvenementTab('descriptif');
   modal.classList.add('show');
@@ -7562,6 +7612,19 @@ function saveEvenement() {
     links.push({ id: row.dataset.linkId || makeId('lnk'), label, url });
   });
 
+  // Réunions et tâches
+  var evtReunions = exportReunionBlocks();
+  evtReunions.forEach(function(r) {
+    tasks.push({
+      id: r.id, label: r.titre,
+      owner: (r.coords && r.coords.length === 1) ? r.coords[0] : ((r.coords && r.coords.length >= 2) ? 'Ensemble' : ''),
+      _coords: (r.coords||[]).slice(),
+      due: r.date || '', note: r.note || '', done: !!r.done,
+      doneAt: r.done ? (new Date().toISOString().slice(0,10)) : '',
+      subtasks: (r.subtasks||[]).slice(), _isReunion: true, createdAt: Date.now()
+    });
+  });
+
   const data = {
     id, titre,
     description: document.getElementById('e-description').value.trim(),
@@ -7575,6 +7638,7 @@ function saveEvenement() {
     budget: parseFloat(document.getElementById('e-budget').value) || 0,
     financement: document.getElementById('e-financement').value.trim(),
     livrables, tasks, links,
+    planif: { reunions: evtReunions },
     updatedAt: Date.now(),
     createdAt: existingId ? ((state.evenements||[]).find(x=>x.id===existingId)||{}).createdAt || Date.now() : Date.now()
   };
@@ -8388,26 +8452,33 @@ function clearJalonAci() {
   renderJalonAciSearch('');
 }
 
-// Quand on choisit une action ACI ou un projet, proposer ses évènements
+// Quand on choisit une action ACI ou un projet, proposer ses évènements + la sous-section Réunions
 function onJalonRattachCibleChange(cat) {
   var evtWrap = document.getElementById('j-rattach-evt-wrap');
   var evtSel = document.getElementById('j-rattach-evt');
   if (!evtWrap || !evtSel) return;
-  if (cat !== 'aci' && cat !== 'projet') { evtWrap.style.display = 'none'; return; }
-  // Pour ACI : l'id vient du champ de recherche ; pour projet : du select
+  if (cat !== 'aci' && cat !== 'projet' && cat !== 'evenement') { evtWrap.style.display = 'none'; return; }
+  // Pour ACI : l'id vient du champ de recherche ; pour projet/évènement : du select
   var cibleId = cat === 'aci'
     ? document.getElementById('j-rattach-aci-id').value
     : document.getElementById('j-rattach-cible').value;
   if (!cibleId) { evtWrap.style.display = 'none'; return; }
   var parent = cat === 'aci'
     ? (state.actions||[]).find(function(a){ return a.id === cibleId; })
-    : (state.projets||[]).find(function(p){ return p.id === cibleId; });
+    : cat === 'projet'
+      ? (state.projets||[]).find(function(p){ return p.id === cibleId; })
+      : (state.evenements||[]).find(function(e){ return e.id === cibleId; });
   var evts = (parent && parent.planif && parent.planif.evenements) ? parent.planif.evenements : [];
-  if (!evts.length) { evtWrap.style.display = 'none'; evtSel.innerHTML = ''; return; }
-  var opts = '<option value="">— Rattacher à un évènement précis (optionnel) —</option>';
-  evts.forEach(function(ev) {
-    opts += '<option value="' + ev.id + '">📅 ' + escapeHtml(ev.titre || ev.type || 'Évènement') + (ev.date ? ' · ' + fmt.date(ev.date) : '') + '</option>';
-  });
+  // Construire les options : Réunions et tâches (toujours) + évènements existants
+  var opts = '<option value="__reunion__">📌 Rattacher à « Réunions et tâches »</option>';
+  if (evts.length) {
+    opts += '<option value="">— ou rattacher à un évènement précis —</option>';
+    evts.forEach(function(ev) {
+      opts += '<option value="' + ev.id + '">📅 ' + escapeHtml(ev.titre || ev.type || 'Évènement') + (ev.date ? ' · ' + fmt.date(ev.date) : '') + '</option>';
+    });
+  } else {
+    opts += '<option value="">— (aucun évènement existant) —</option>';
+  }
   evtSel.innerHTML = opts;
   evtWrap.style.display = '';
 }
@@ -8534,7 +8605,26 @@ function saveJalon() {
   toast(existingId ? '📍 Tâche mise à jour' : '📍 Tâche ajoutée — ' + fmt.date(deadline));
 }
 
+// Construit une réunion (planif.reunions) à partir d'une tâche saisie dans l'agenda
+function jalonToReunion(taskData) {
+  return {
+    id: makeId('reu'),
+    titre: taskData.titre,
+    coords: taskData.attribue ? [taskData.attribue] : [],
+    date: taskData.date || '',
+    done: false,
+    note: taskData.note || '',
+    subtasks: (taskData.subtasks || []).map(function(s){
+      return { id: s.id || makeId('rst'), label: s.label || s.titre || '', done: !!s.done };
+    }),
+    createdAt: Date.now()
+  };
+}
+
 // Migre une tâche libre (jalon) vers une fiche (action ACI, projet, évènement, gestion interne).
+// Le sélecteur j-rattach-evt indique la destination :
+//   - '__reunion__' ou vide  → sous-section « Réunions et tâches »
+//   - un id d'évènement       → tâche ajoutée dans cet évènement
 // Retourne true si la migration a réussi.
 function migrateJalonToFiche(cat, cibleId, taskData) {
   var newTask = {
@@ -8548,14 +8638,18 @@ function migrateJalonToFiche(cat, cibleId, taskData) {
     subtasks: (taskData.subtasks || []).slice(),
     createdAt: Date.now()
   };
+  var dest = document.getElementById('j-rattach-evt') ? document.getElementById('j-rattach-evt').value : '';
+  var toReunion = (!dest || dest === '__reunion__');
 
   if (cat === 'aci') {
     var action = (state.actions||[]).find(function(a){ return a.id === cibleId; });
     if (!action) return false;
-    // Rattachement éventuel à un évènement existant de l'action
-    var evtId = document.getElementById('j-rattach-evt') ? document.getElementById('j-rattach-evt').value : '';
-    if (evtId && action.planif && action.planif.evenements) {
-      var ev = action.planif.evenements.find(function(e){ return e.id === evtId; });
+    if (!action.planif) action.planif = { evenements: [], reunions: [] };
+    if (!action.planif.evenements) action.planif.evenements = [];
+    if (!action.planif.reunions) action.planif.reunions = [];
+    if (!toReunion) {
+      // Rattachement à un évènement existant
+      var ev = action.planif.evenements.find(function(e){ return e.id === dest; });
       if (ev) {
         if (!ev.tasks) ev.tasks = [];
         ev.tasks.push(newTask);
@@ -8563,34 +8657,18 @@ function migrateJalonToFiche(cat, cibleId, taskData) {
         return true;
       }
     }
-    // Sinon, créer un ÉVÈNEMENT dans la planification de l'action
-    // (pour qu'il apparaisse dans l'Agenda et la fiche mission)
-    if (!action.planif) action.planif = { evenements: [] };
-    if (!action.planif.evenements) action.planif.evenements = [];
-    var newEvt = {
-      id: makeId('evt'),
-      titre: taskData.titre,
-      type: '',
-      date: taskData.date || '',
-      lieu: '',
-      animatrices: taskData.attribue ? [taskData.attribue] : [],
-      journeePrev: false,
-      prevThemes: [],
-      prevActionIds: [],
-      prevPartenaires: '',
-      tasks: [newTask],
-      checklistPrep: []
-    };
-    action.planif.evenements.push(newEvt);
+    // Par défaut → Réunions et tâches
+    action.planif.reunions.push(jalonToReunion(taskData));
     reaggregateActionTasks(action);
     return true;
   } else if (cat === 'projet') {
     var projet = (state.projets||[]).find(function(p){ return p.id === cibleId; });
     if (!projet) return false;
-    var pEvtId = document.getElementById('j-rattach-evt') ? document.getElementById('j-rattach-evt').value : '';
-    if (!projet.planif) projet.planif = { evenements: [] };
-    if (pEvtId && projet.planif.evenements) {
-      var pev = projet.planif.evenements.find(function(e){ return e.id === pEvtId; });
+    if (!projet.planif) projet.planif = { evenements: [], reunions: [] };
+    if (!projet.planif.evenements) projet.planif.evenements = [];
+    if (!projet.planif.reunions) projet.planif.reunions = [];
+    if (!toReunion) {
+      var pev = projet.planif.evenements.find(function(e){ return e.id === dest; });
       if (pev) {
         if (!pev.tasks) pev.tasks = [];
         pev.tasks.push(newTask);
@@ -8598,30 +8676,19 @@ function migrateJalonToFiche(cat, cibleId, taskData) {
         return true;
       }
     }
-    // Créer un évènement dans la planification du projet
-    if (!projet.planif.evenements) projet.planif.evenements = [];
-    var newPEvt = {
-      id: makeId('evt'),
-      titre: taskData.titre,
-      type: '',
-      date: taskData.date || '',
-      lieu: '',
-      animatrices: taskData.attribue ? [taskData.attribue] : [],
-      journeePrev: false,
-      prevThemes: [],
-      prevActionIds: [],
-      prevPartenaires: '',
-      tasks: [newTask],
-      checklistPrep: []
-    };
-    projet.planif.evenements.push(newPEvt);
+    projet.planif.reunions.push(jalonToReunion(taskData));
     reaggregateProjetTasks(projet);
     return true;
   } else if (cat === 'evenement') {
     var evenement = (state.evenements||[]).find(function(e){ return e.id === cibleId; });
     if (!evenement) return false;
+    if (!evenement.planif) evenement.planif = { reunions: [] };
+    if (!evenement.planif.reunions) evenement.planif.reunions = [];
     if (!evenement.tasks) evenement.tasks = [];
-    evenement.tasks.push(newTask);
+    // Ajout dans Réunions et tâches + agrégation dans tasks
+    var r = jalonToReunion(taskData);
+    evenement.planif.reunions.push(r);
+    evenement.tasks.push(reunionToTask(r));
     return true;
   } else if (cat === 'orga') {
     var ocat = (state.orga_interne||[]).find(function(c){ return c.id === cibleId; });
@@ -8633,26 +8700,49 @@ function migrateJalonToFiche(cat, cibleId, taskData) {
   return false;
 }
 
-// Réagrège les tâches de tous les évènements d'une action dans action.tasks
+// Convertit une réunion (planif.reunions) en tâche agrégée (pour Kanban/Agenda/avancement)
+function reunionToTask(r) {
+  return {
+    id: r.id,
+    label: r.titre,
+    owner: (r.coords && r.coords.length === 1) ? r.coords[0] : ((r.coords && r.coords.length >= 2) ? 'Ensemble' : ''),
+    _coords: (r.coords||[]).slice(),
+    due: r.date || '',
+    note: r.note || '',
+    done: !!r.done,
+    doneAt: r.done ? (new Date().toISOString().slice(0,10)) : '',
+    subtasks: (r.subtasks||[]).slice(),
+    _isReunion: true,
+    createdAt: r.createdAt || Date.now()
+  };
+}
+
+// Réagrège les tâches de tous les évènements ET des réunions d'une action dans action.tasks
 function reaggregateActionTasks(action) {
-  if (!action.planif || !action.planif.evenements) return;
+  if (!action.planif) return;
   var agg = [];
-  action.planif.evenements.forEach(function(ev) {
+  (action.planif.evenements||[]).forEach(function(ev) {
     (ev.tasks||[]).forEach(function(t) {
       agg.push(Object.assign({}, t, { _evtId: ev.id, _evtTitre: ev.titre }));
     });
   });
+  (action.planif.reunions||[]).forEach(function(r) {
+    agg.push(reunionToTask(r));
+  });
   action.tasks = agg;
 }
 
-// Réagrège les tâches de tous les évènements d'un projet dans projet.tasks
+// Réagrège les tâches de tous les évènements ET des réunions d'un projet dans projet.tasks
 function reaggregateProjetTasks(projet) {
-  if (!projet.planif || !projet.planif.evenements) return;
+  if (!projet.planif) return;
   var agg = [];
-  projet.planif.evenements.forEach(function(ev) {
+  (projet.planif.evenements||[]).forEach(function(ev) {
     (ev.tasks||[]).forEach(function(t) {
       agg.push(Object.assign({}, t, { _evtId: ev.id, _evtTitre: ev.titre }));
     });
+  });
+  (projet.planif.reunions||[]).forEach(function(r) {
+    agg.push(reunionToTask(r));
   });
   projet.tasks = agg;
 }
@@ -8888,7 +8978,7 @@ function toggleTaskDone(checked) {
   if (!c.task) return;
   c.task.done = checked;
   c.task.doneAt = checked ? new Date().toISOString().slice(0,10) : '';
-  if (c.action) syncTaskToEvent(c.action, c.task);
+  syncTaskBack(c, c.task);
   saveState();
   renderTaskDoneToggle();
   refreshPlanningIfVisible();
@@ -8928,15 +9018,39 @@ function resolveTaskContext() {
     if (type === 'projet') parent = (state.projets||[]).find(function(p){ return p.id === parentId; });
     else if (type === 'evenement') parent = (state.evenements||[]).find(function(e){ return e.id === parentId; });
     else if (type === 'orga') parent = (state.orga_interne||[]).find(function(c){ return c.id === parentId; });
-    if (!parent) return { task: null, action: null };
+    if (!parent) return { task: null, action: null, parent: null, parentType: type };
     var task = (parent.tasks||[]).find(function(t){ return t.id === _taskDetailTaskId; });
-    return { task: task || null, action: null };
+    return { task: task || null, action: null, parent: parent, parentType: type };
   }
   // Contexte action ACI
   var action = state.actions.find(function(a){ return a.id === _taskDetailActionId; });
-  if (!action) return { task: null, action: null };
+  if (!action) return { task: null, action: null, parent: null, parentType: 'aci' };
   var t = (action.tasks||[]).find(function(x){ return x.id === _taskDetailTaskId; });
-  return { task: t || null, action: action };
+  return { task: t || null, action: action, parent: action, parentType: 'aci' };
+}
+
+// Écrit les modifications d'une tâche vers sa source de vérité :
+//  - tâche d'évènement (_evtId) → planif.evenements[].tasks[]
+//  - tâche de réunion (_isReunion) → planif.reunions[]
+function syncTaskBack(ctx, task) {
+  if (!task) return;
+  // Tâche issue d'un évènement de planification (ACI uniquement)
+  if (task._evtId && ctx.action) {
+    syncTaskToEvent(ctx.action, task);
+    return;
+  }
+  // Tâche de réunion : mettre à jour planif.reunions du parent
+  if (task._isReunion && ctx.parent && ctx.parent.planif && Array.isArray(ctx.parent.planif.reunions)) {
+    var r = ctx.parent.planif.reunions.find(function(x){ return x.id === task.id; });
+    if (r) {
+      r.done = !!task.done;
+      r.date = task.due || '';
+      r.note = task.note || '';
+      r.subtasks = (task.subtasks||[]).map(function(s){ return { id: s.id, label: s.label, done: !!s.done }; });
+      // Recomposer coords depuis owner si besoin (conserve l'existant sinon)
+      if (Array.isArray(task._coords)) r.coords = task._coords.slice();
+    }
+  }
 }
 
 function saveTaskNote() {
@@ -8947,7 +9061,7 @@ function saveTaskNote() {
   var val = noteEl.value.trim();
   if ((c.task.note || '') === val) return; // pas de changement
   c.task.note = val;
-  if (c.action) syncTaskToEvent(c.action, c.task);
+  syncTaskBack(c, c.task);
   saveState();
   refreshPlanningIfVisible();
   if (currentView === 'orga-interne') { try { renderOrgaInterne(); } catch(e) {} }
@@ -8972,7 +9086,7 @@ function saveTaskDue(val) {
   var c = resolveTaskContext();
   if (!c.task) return;
   c.task.due = val || '';
-  if (c.action) syncTaskToEvent(c.action, c.task);
+  syncTaskBack(c, c.task);
   saveState();
   renderTaskDueEditor();
   refreshPlanningIfVisible();
@@ -9038,7 +9152,7 @@ function addSubTask() {
 
   c.task.subtasks.push({ id: makeId('st'), label: label, done: false, doneAt: '' });
   syncMotherFromSubtasks(c.task);
-  if (c.action) syncTaskToEvent(c.action, c.task);
+  syncTaskBack(c, c.task);
   saveState();
   inp.value = '';
   renderSubTasksList();
@@ -9056,7 +9170,7 @@ function toggleSubTask(stId, checked) {
   st.done = checked;
   st.doneAt = checked ? new Date().toISOString().slice(0,10) : '';
   syncMotherFromSubtasks(c.task);
-  if (c.action) syncTaskToEvent(c.action, c.task);
+  syncTaskBack(c, c.task);
   saveState();
   renderSubTasksList();
   renderTaskDoneToggle();
@@ -9069,7 +9183,7 @@ function deleteSubTask(stId) {
   if (!c.task || !c.task.subtasks) return;
   c.task.subtasks = c.task.subtasks.filter(function(s){ return s.id !== stId; });
   if (c.task.subtasks.length) syncMotherFromSubtasks(c.task);
-  if (c.action) syncTaskToEvent(c.action, c.task);
+  syncTaskBack(c, c.task);
   saveState();
   renderSubTasksList();
   renderTaskDoneToggle();
@@ -9263,6 +9377,220 @@ function filterLexique(query) {
 // État temporaire pendant l'édition d'une fiche
 var _evtBlocks = [];        // liste des évènements en cours d'édition
 var _checklistPrep = [];
+var _reunionBlocks = [];    // liste des réunions/tâches en cours d'édition
+var _reunionContext = '';   // 'action' | 'projet' | 'evenement'
+
+/* ============================================================
+   RÉUNIONS ET TÂCHES — sous-section légère de la Planification
+   Structure : { id, titre, coords:[...], date, done, note, subtasks:[...] }
+   coords = attribution multiple (Yayi / Yoanna / Margaux)
+   ============================================================ */
+
+function reunionListElId() {
+  if (_reunionContext === 'projet') return 'projet-reunion-list';
+  if (_reunionContext === 'evenement') return 'evenement-reunion-list';
+  return 'reunion-list';
+}
+
+function addReunionBlock(context) {
+  if (context) _reunionContext = context;
+  syncReunionBlocksFromDOM();
+  _reunionBlocks.push({
+    id: makeId('reu'),
+    titre: '',
+    coords: [],
+    date: '',
+    done: false,
+    note: '',
+    subtasks: [],
+    _open: true
+  });
+  renderReunionBlocks();
+}
+
+function removeReunionBlock(idx) {
+  syncReunionBlocksFromDOM();
+  _reunionBlocks.splice(idx, 1);
+  renderReunionBlocks();
+}
+
+function toggleReunionOpen(idx) {
+  syncReunionBlocksFromDOM();
+  if (_reunionBlocks[idx]) _reunionBlocks[idx]._open = !_reunionBlocks[idx]._open;
+  renderReunionBlocks();
+}
+
+function toggleReunionCoord(idx, name) {
+  syncReunionBlocksFromDOM();
+  var r = _reunionBlocks[idx];
+  if (!r) return;
+  if (!Array.isArray(r.coords)) r.coords = [];
+  var pos = r.coords.indexOf(name);
+  if (pos >= 0) r.coords.splice(pos, 1);
+  else r.coords.push(name);
+  renderReunionBlocks();
+}
+
+function addReunionSubtask(idx) {
+  syncReunionBlocksFromDOM();
+  var r = _reunionBlocks[idx];
+  if (!r) return;
+  if (!Array.isArray(r.subtasks)) r.subtasks = [];
+  r.subtasks.push({ id: makeId('rst'), label: '', done: false });
+  renderReunionBlocks();
+}
+
+function removeReunionSubtask(idx, sidx) {
+  syncReunionBlocksFromDOM();
+  var r = _reunionBlocks[idx];
+  if (!r || !r.subtasks) return;
+  r.subtasks.splice(sidx, 1);
+  renderReunionBlocks();
+}
+
+// Lit les valeurs du DOM vers _reunionBlocks (avant re-render)
+function syncReunionBlocksFromDOM() {
+  _reunionBlocks.forEach(function(r, i) {
+    var titreEl = document.getElementById('reu-titre-' + i);
+    var dateEl = document.getElementById('reu-date-' + i);
+    var doneEl = document.getElementById('reu-done-' + i);
+    var noteEl = document.getElementById('reu-note-' + i);
+    if (titreEl) r.titre = titreEl.value;
+    if (dateEl) r.date = dateEl.value;
+    if (doneEl) r.done = doneEl.checked;
+    if (noteEl) r.note = noteEl.value;
+    (r.subtasks || []).forEach(function(st, si) {
+      var stEl = document.getElementById('reu-st-' + i + '-' + si);
+      var stDoneEl = document.getElementById('reu-st-done-' + i + '-' + si);
+      if (stEl) st.label = stEl.value;
+      if (stDoneEl) st.done = stDoneEl.checked;
+    });
+  });
+}
+
+function renderReunionBlocks() {
+  var listEl = document.getElementById(reunionListElId());
+  if (!listEl) return;
+  if (!_reunionBlocks.length) {
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--ink-mute);font-style:italic;padding:6px 2px">Aucune réunion ou tâche. Cliquez ci-dessous pour en ajouter.</div>';
+    return;
+  }
+  var coordList = ['Yayi', 'Yoanna', 'Margaux'];
+  var html = '';
+  _reunionBlocks.forEach(function(r, i) {
+    var isOpen = r._open !== false;
+    var stDone = (r.subtasks || []).filter(function(s){ return s.done; }).length;
+    var stTotal = (r.subtasks || []).length;
+    // Bandeau coords
+    var coordsBadges = (r.coords || []).map(function(n) {
+      var c = collabColor(n);
+      return '<span style="display:inline-block;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:600;background:' + c.bg + ';color:' + c.text + ';margin-right:3px">' + n + '</span>';
+    }).join('');
+
+    html += '<div style="border:1px solid var(--line);border-radius:9px;margin-bottom:8px;overflow:hidden">';
+    // En-tête repliable
+    html += '<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--bg-soft);cursor:pointer" onclick="toggleReunionOpen(' + i + ')">'
+      + '<span style="font-size:12px">' + (isOpen ? '▾' : '▸') + '</span>'
+      + '<span style="font-weight:600;font-size:12.5px;color:var(--ink);flex:1">' + (r.titre ? escapeHtml(r.titre) : '<span style="color:var(--ink-mute);font-style:italic">Nouvelle réunion / tâche</span>') + '</span>'
+      + (r.done ? '<span style="font-size:10.5px;color:var(--ok)">✅ Fait</span>' : '')
+      + (r.date ? '<span style="font-size:10.5px;color:var(--ink-mute)">📅 ' + fmt.date(r.date) + '</span>' : '')
+      + coordsBadges
+      + (stTotal ? '<span style="font-size:10px;color:var(--teal-d)">☑ ' + stDone + '/' + stTotal + '</span>' : '')
+      + '</div>';
+
+    if (isOpen) {
+      html += '<div style="padding:12px;background:var(--surface)">';
+      // Titre
+      html += '<div class="form-field" style="margin-bottom:8px"><label>Intitulé</label>'
+        + '<input type="text" id="reu-titre-' + i + '" value="' + escapeHtml(r.titre || '') + '" placeholder="Ex. Visio de préparation avec la CPAM" onblur="syncReunionBlocksFromDOM();renderReunionBlocks();" /></div>';
+      // Coordinatrices (attribution multiple)
+      html += '<div class="form-field" style="margin-bottom:8px"><label>Coordinatrice(s) — plusieurs possibles</label>'
+        + '<div style="display:flex;gap:12px;flex-wrap:wrap;padding-top:4px">';
+      coordList.forEach(function(n) {
+        var checked = (r.coords || []).indexOf(n) >= 0;
+        html += '<label style="display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:500;cursor:pointer">'
+          + '<input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="toggleReunionCoord(' + i + ',\'' + n + '\')" style="width:15px;height:15px;cursor:pointer;accent-color:var(--teal)" /> ' + n
+          + '</label>';
+      });
+      html += '</div></div>';
+      // Date + statut fait
+      html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">'
+        + '<div class="form-field" style="flex:1;min-width:150px"><label>Date <small style="font-weight:400;color:var(--ink-mute)">(vide = Kanban)</small></label>'
+        + '<input type="date" id="reu-date-' + i + '" value="' + escapeHtml(r.date || '') + '" onchange="syncReunionBlocksFromDOM();renderReunionBlocks();" /></div>'
+        + '<div class="form-field" style="display:flex;align-items:flex-end;padding-bottom:8px">'
+        + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;cursor:pointer">'
+        + '<input type="checkbox" id="reu-done-' + i + '" ' + (r.done ? 'checked' : '') + ' onchange="syncReunionBlocksFromDOM();renderReunionBlocks();" style="width:15px;height:15px;cursor:pointer;accent-color:var(--teal)" /> Terminé</label>'
+        + '</div></div>';
+      // Note
+      html += '<div class="form-field" style="margin-bottom:8px"><label>Note</label>'
+        + '<input type="text" id="reu-note-' + i + '" value="' + escapeHtml(r.note || '') + '" placeholder="Précision, ordre du jour, lien visio…" onblur="syncReunionBlocksFromDOM();" /></div>';
+      // Sous-tâches
+      html += '<div class="form-field"><label>Sous-tâches</label>';
+      (r.subtasks || []).forEach(function(st, si) {
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'
+          + '<input type="checkbox" id="reu-st-done-' + i + '-' + si + '" ' + (st.done ? 'checked' : '') + ' onchange="syncReunionBlocksFromDOM();renderReunionBlocks();" style="width:14px;height:14px;cursor:pointer;accent-color:var(--teal)" />'
+          + '<input type="text" id="reu-st-' + i + '-' + si + '" value="' + escapeHtml(st.label || '') + '" placeholder="Sous-tâche…" onblur="syncReunionBlocksFromDOM();" style="flex:1" />'
+          + '<button type="button" class="btn btn-sm btn-danger-text" onclick="removeReunionSubtask(' + i + ',' + si + ')" style="padding:2px 7px">✕</button>'
+          + '</div>';
+      });
+      html += '<button type="button" class="btn btn-sm" onclick="addReunionSubtask(' + i + ')" style="margin-top:2px">＋ Sous-tâche</button>';
+      html += '</div>';
+      // Supprimer
+      html += '<div style="text-align:right;margin-top:8px"><button type="button" class="btn btn-sm btn-danger-text" onclick="removeReunionBlock(' + i + ')">🗑 Supprimer cette réunion / tâche</button></div>';
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+  listEl.innerHTML = html;
+}
+
+// Charge les réunions d'une fiche vers _reunionBlocks
+function loadReunionBlocks(planif, context) {
+  _reunionContext = context;
+  var reunions = (planif && planif.reunions) ? planif.reunions : [];
+  _reunionBlocks = reunions.map(function(r) {
+    return {
+      id: r.id || makeId('reu'),
+      titre: r.titre || '',
+      coords: (r.coords || []).slice(),
+      date: r.date || '',
+      done: !!r.done,
+      note: r.note || '',
+      subtasks: (r.subtasks || []).map(function(s){ return Object.assign({}, s); }),
+      _open: false
+    };
+  });
+  renderReunionBlocks();
+}
+
+// Exporte _reunionBlocks vers un tableau propre (pour sauvegarde), trié chronologiquement
+function exportReunionBlocks() {
+  syncReunionBlocksFromDOM();
+  var out = _reunionBlocks
+    .filter(function(r){ return (r.titre || '').trim(); })
+    .map(function(r) {
+      return {
+        id: r.id,
+        titre: r.titre.trim(),
+        coords: (r.coords || []).slice(),
+        date: r.date || '',
+        done: !!r.done,
+        note: (r.note || '').trim(),
+        subtasks: (r.subtasks || []).filter(function(s){ return (s.label||'').trim(); })
+          .map(function(s){ return { id: s.id, label: s.label.trim(), done: !!s.done }; })
+      };
+    });
+  // Tri chronologique (datées d'abord, sans date à la fin)
+  out.sort(function(a, b) {
+    if (!a.date && !b.date) return 0;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return a.date < b.date ? -1 : 1;
+  });
+  return out;
+}
+
+
 
 /* ============================================================
    PLANIFICATION PROJET HORS ACI — évènements (réutilise la logique ACI)
@@ -9913,26 +10241,25 @@ function renderEvtLies(currentActionId, currentMission) {
   var listEl = document.getElementById('evt-lies-list');
   if (!section || !listEl) return;
 
-  // On cherche tous les évènements (d'autres fiches ACI) dont prevActionIds contient l'action courante.
+  // On cherche tous les éléments (évènements ET réunions) d'autres fiches
+  // dont prevActionIds contient l'action courante.
   var liens = [];
   state.actions.forEach(function(a) {
     if (a.id === currentActionId) return;
     var plan = a.planif;
-    if (!plan || !plan.evenements) return;
-    plan.evenements.forEach(function(ev) {
-      if (!ev.journeePrev) return;
+    if (!plan) return;
+    (plan.evenements || []).forEach(function(ev) {
       var ids = ev.prevActionIds || [];
-      if (ids.indexOf(currentActionId) !== -1) liens.push({ source: a, evt: ev, kind: 'aci' });
+      if (ids.indexOf(currentActionId) !== -1) liens.push({ source: a, evt: ev, kind: 'aci', isReunion: false });
     });
   });
-  // Et dans les évènements des projets Hors ACI (propagation bidirectionnelle)
+  // Évènements des projets Hors ACI
   (state.projets||[]).forEach(function(p) {
     var plan = p.planif;
-    if (!plan || !plan.evenements) return;
-    plan.evenements.forEach(function(ev) {
-      if (!ev.journeePrev) return;
+    if (!plan) return;
+    (plan.evenements || []).forEach(function(ev) {
       var ids = ev.prevActionIds || [];
-      if (ids.indexOf(currentActionId) !== -1) liens.push({ source: { id: p.id, titre: '🚀 ' + p.titre }, evt: ev, kind: 'projet' });
+      if (ids.indexOf(currentActionId) !== -1) liens.push({ source: { id: p.id, titre: '🚀 ' + p.titre }, evt: ev, kind: 'projet', isReunion: false });
     });
   });
 
@@ -9944,8 +10271,9 @@ function renderEvtLies(currentActionId, currentMission) {
     var openFn = l.kind === 'projet'
       ? 'closeActionModal();setTimeout(function(){openProjetModal(\'' + l.source.id + '\');},120)'
       : 'closeActionModal();setTimeout(function(){openActionModal(\'' + l.source.id + '\');},120)';
+    var icon = ev.journeePrev ? '🎯' : '📅';
     html += '<div class="evt-lie-card">'
-      + '<div style="font-weight:600;color:var(--teal-d)">🎯 ' + escapeHtml(ev.titre || ev.type || 'Journée prévention') + (ev.date ? ' · ' + fmt.date(ev.date) : '') + '</div>'
+      + '<div style="font-weight:600;color:var(--teal-d)">' + icon + ' ' + escapeHtml(ev.titre || ev.type || 'Évènement') + (ev.date ? ' · ' + fmt.date(ev.date) : '') + '</div>'
       + '<div style="font-size:11.5px;color:var(--ink-soft);margin-top:2px">Issue de : <strong>' + escapeHtml(l.source.titre) + '</strong></div>'
       + (ev.lieu ? '<div style="font-size:11px;color:var(--ink-mute)">📍 ' + escapeHtml(ev.lieu) + '</div>' : '')
       + (ev.prevPartenaires ? '<div style="font-size:11px;color:var(--ink-mute)">🤝 ' + escapeHtml(ev.prevPartenaires) + '</div>' : '')
@@ -10103,6 +10431,8 @@ function openActionModal(id) {
       };
     });
     renderEvtBlocks();
+    // Réunions et tâches
+    loadReunionBlocks(plan, 'action');
     // Évènements liés (propagation depuis d'autres fiches)
     renderEvtLies(a.id, a.mission);
   } else {
@@ -10135,6 +10465,8 @@ function openActionModal(id) {
     // --- Planification (création) ---
     _evtBlocks = [];
     renderEvtBlocks();
+    _reunionBlocks = []; _reunionContext = 'action';
+    renderReunionBlocks();
     document.getElementById('evt-lies-section').style.display = 'none';
   }
 
@@ -10208,6 +10540,24 @@ function saveAction() {
     });
   });
 
+  // Agréger les réunions/tâches comme des tâches (pour l'avancement + Kanban/Agenda)
+  var reunionsForTasks = exportReunionBlocks();
+  reunionsForTasks.forEach(function(r) {
+    tasks.push({
+      id: r.id,
+      label: r.titre,
+      owner: (r.coords && r.coords.length === 1) ? r.coords[0] : ((r.coords && r.coords.length >= 2) ? 'Ensemble' : ''),
+      _coords: (r.coords||[]).slice(),
+      due: r.date || '',
+      note: r.note || '',
+      done: !!r.done,
+      doneAt: r.done ? (new Date().toISOString().slice(0,10)) : '',
+      subtasks: (r.subtasks||[]).slice(),
+      _isReunion: true,
+      createdAt: Date.now()
+    });
+  });
+
   const links = [];
   document.querySelectorAll('#links-list .link-row').forEach(row => {
     const label = row.querySelector('.link-label').value.trim();
@@ -10255,7 +10605,8 @@ function saveAction() {
     },
     cpamDiscussion: document.getElementById('a-cpam-discussion').checked,
     planif: {
-      evenements: evenements
+      evenements: evenements,
+      reunions: exportReunionBlocks()
     },
     livrables, tasks, links,
     updatedAt: Date.now(),
