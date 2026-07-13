@@ -1760,6 +1760,10 @@ a:hover { text-decoration: underline; }
             <input type="time" id="e-heure" placeholder="Ex. 18:00" />
           </div>
           <div class="form-field row-full">
+            <label>📹 Lien visio <small style="font-weight:400;color:var(--ink-mute)">(si évènement en ligne ou hybride)</small></label>
+            <input type="url" id="e-visio" placeholder="https://teams.microsoft.com/..." />
+          </div>
+          <div class="form-field row-full">
             <label>Lieu</label>
             <input type="text" id="e-lieu" placeholder="Salle, adresse, ville…" />
           </div>
@@ -1932,49 +1936,51 @@ a:hover { text-decoration: underline; }
           </div>
         </div>
 
-        <div class="form-field">
-          <label>Deadline *</label>
-          <input type="date" id="j-deadline" required style="max-width:200px" />
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div class="form-field">
+            <label>Deadline *</label>
+            <input type="date" id="j-deadline" required style="max-width:200px" />
+          </div>
+          <div class="form-field">
+            <label>Heure <small style="font-weight:400;color:var(--ink-mute)">(optionnelle)</small></label>
+            <input type="time" id="j-heure" style="max-width:140px" />
+          </div>
         </div>
 
         <div class="form-field">
-          <label>Attribué à</label>
+          <label>📹 Lien visio <small style="font-weight:400;color:var(--ink-mute)">(Teams, Zoom, Meet…)</small></label>
+          <input type="url" id="j-visio" placeholder="https://teams.microsoft.com/..." />
+        </div>
+
+        <div class="form-field">
+          <label>Attribué à <small style="font-weight:400;color:var(--ink-mute)">(plusieurs possibles — 3 cochées = Ensemble)</small></label>
           <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;
                    border-radius:8px;border:2px solid var(--line);font-size:13px;font-weight:500;
                    text-transform:none;letter-spacing:0;flex:1;min-width:90px;justify-content:center;
                    transition:all .15s" id="lbl-attr-yayi">
-              <input type="radio" name="j-attribue" value="Yayi" checked
+              <input type="checkbox" name="j-attribue" value="Yayi" checked
                      onchange="styleJalonLabels()"
-                     style="width:15px;height:15px" />
+                     style="width:15px;height:15px;accent-color:var(--col-yayi)" />
               Yayi
             </label>
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;
                    border-radius:8px;border:2px solid var(--line);font-size:13px;font-weight:500;
                    text-transform:none;letter-spacing:0;flex:1;min-width:90px;justify-content:center;
                    transition:all .15s" id="lbl-attr-yoanna">
-              <input type="radio" name="j-attribue" value="Yoanna"
+              <input type="checkbox" name="j-attribue" value="Yoanna"
                      onchange="styleJalonLabels()"
-                     style="width:15px;height:15px" />
+                     style="width:15px;height:15px;accent-color:var(--col-yoanna)" />
               Yoanna
             </label>
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;
                    border-radius:8px;border:2px solid var(--line);font-size:13px;font-weight:500;
                    text-transform:none;letter-spacing:0;flex:1;min-width:90px;justify-content:center;
                    transition:all .15s" id="lbl-attr-margaux">
-              <input type="radio" name="j-attribue" value="Margaux"
+              <input type="checkbox" name="j-attribue" value="Margaux"
                      onchange="styleJalonLabels()"
-                     style="width:15px;height:15px" />
+                     style="width:15px;height:15px;accent-color:var(--col-margaux)" />
               Margaux
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;
-                   border-radius:8px;border:2px solid var(--line);font-size:13px;font-weight:500;
-                   text-transform:none;letter-spacing:0;flex:1;min-width:90px;justify-content:center;
-                   transition:all .15s" id="lbl-attr-toutes">
-              <input type="radio" name="j-attribue" value="Ensemble"
-                     onchange="styleJalonLabels()"
-                     style="width:15px;height:15px" />
-              Ensemble
             </label>
           </div>
         </div>
@@ -3179,6 +3185,14 @@ function loadState() {
         if (!Array.isArray(parsed.evenements)) parsed.evenements = [];
         if (!Array.isArray(parsed.commu)) parsed.commu = [];
         if (!Array.isArray(parsed.jalons)) parsed.jalons = [];
+        parsed.jalons.forEach(function(j){
+          if (!j) return;
+          if (typeof j.heure === 'undefined') j.heure = '';
+          if (typeof j.visio === 'undefined') j.visio = '';
+          if (!Array.isArray(j.coords)) {
+            j.coords = (j.attribue === 'Ensemble') ? ['Yayi','Yoanna','Margaux'] : (j.attribue ? [j.attribue] : []);
+          }
+        });
         if (!Array.isArray(parsed.agenda)) parsed.agenda = [];
         if (!Array.isArray(parsed.documents)) parsed.documents = [];
         if (!Array.isArray(parsed.orga_interne)) parsed.orga_interne = [];
@@ -3208,6 +3222,17 @@ function loadState() {
             // Normaliser planif.reunions (sous-section Réunions et tâches)
             if (!a.planif) a.planif = { evenements: [] };
             if (!Array.isArray(a.planif.reunions)) a.planif.reunions = [];
+            // Normaliser les champs des évènements (heure, visio, réalisé)
+            (a.planif.evenements||[]).forEach(function(ev){
+              if (typeof ev.heure === 'undefined') ev.heure = '';
+              if (typeof ev.visio === 'undefined') ev.visio = '';
+              if (typeof ev.done === 'undefined') ev.done = false;
+            });
+            (a.planif.reunions||[]).forEach(function(r){
+              if (typeof r.heure === 'undefined') r.heure = '';
+              if (typeof r.visio === 'undefined') r.visio = '';
+              if (!Array.isArray(r.coords)) r.coords = [];
+            });
           });
         }
 
@@ -3217,6 +3242,16 @@ function loadState() {
             if (!p) return;
             if (!p.planif) p.planif = { evenements: [] };
             if (!Array.isArray(p.planif.reunions)) p.planif.reunions = [];
+            (p.planif.evenements||[]).forEach(function(ev){
+              if (typeof ev.heure === 'undefined') ev.heure = '';
+              if (typeof ev.visio === 'undefined') ev.visio = '';
+              if (typeof ev.done === 'undefined') ev.done = false;
+            });
+            (p.planif.reunions||[]).forEach(function(r){
+              if (typeof r.heure === 'undefined') r.heure = '';
+              if (typeof r.visio === 'undefined') r.visio = '';
+              if (!Array.isArray(r.coords)) r.coords = [];
+            });
           });
         }
         if (Array.isArray(parsed.evenements)) {
@@ -3224,6 +3259,16 @@ function loadState() {
             if (!e) return;
             if (!e.planif) e.planif = { evenements: [] };
             if (!Array.isArray(e.planif.reunions)) e.planif.reunions = [];
+            // Évènement Hors ACI : toujours attribué aux 3 coordinatrices (Ensemble)
+            e.animatrices = ['Yayi','Yoanna','Margaux'];
+            if (typeof e.heure === 'undefined') e.heure = '';
+            if (typeof e.visio === 'undefined') e.visio = '';
+            if (typeof e.done === 'undefined') e.done = false;
+            (e.planif.reunions||[]).forEach(function(r){
+              if (typeof r.heure === 'undefined') r.heure = '';
+              if (typeof r.visio === 'undefined') r.visio = '';
+              if (!Array.isArray(r.coords)) r.coords = [];
+            });
           });
         }
 
@@ -3386,6 +3431,114 @@ async function spGetDriveId() {
   _spDriveId = drive.id;
   return _spDriveId;
 }
+
+/* ============================================================
+   UPLOAD / DOWNLOAD DE FICHIERS VERS SHAREPOINT (via Graph API)
+   - Petits fichiers (< 4 Mo) : PUT simple
+   - Gros fichiers (>= 4 Mo)  : upload par session (chunks)
+   Dossier de stockage : CPTS-Pilotage/documents/<type>/
+   ============================================================ */
+
+var SP_DOC_FOLDER = 'CPTS-Pilotage/documents';
+
+// Nettoie un nom de fichier pour SharePoint
+function spSanitizeName(name) {
+  return (name || 'fichier').replace(/[#%*:<>?/\\{|}"]/g, '-').replace(/\s+/g, ' ').trim();
+}
+
+// Vérifie que SharePoint est disponible pour l'upload
+function spUploadAvailable() {
+  return !!(_spEnabled && _spToken);
+}
+
+// Upload d'un fichier (File object) vers SharePoint ; retourne { name, webUrl, id, size }
+async function spUploadFile(file, subfolder, onProgress) {
+  if (!spUploadAvailable()) throw new Error('SharePoint non connecté');
+  var driveId = await spGetDriveId();
+  var folder = SP_DOC_FOLDER + (subfolder ? '/' + subfolder : '');
+  var safeName = spSanitizeName(file.name);
+  var path = folder + '/' + safeName;
+  var SMALL_LIMIT = 4 * 1024 * 1024; // 4 Mo
+
+  if (file.size < SMALL_LIMIT) {
+    // Upload simple
+    var resp = await fetch(
+      'https://graph.microsoft.com/v1.0/drives/' + driveId + '/root:/' + encodeURI(path) + ':/content',
+      { method: 'PUT', headers: { 'Authorization': 'Bearer ' + _spToken }, body: file }
+    );
+    if (!resp.ok) throw new Error('Upload échoué (' + resp.status + ')');
+    var meta = await resp.json();
+    if (onProgress) onProgress(100);
+    return { name: meta.name, webUrl: meta.webUrl, id: meta.id, size: meta.size };
+  }
+
+  // Upload par session (gros fichiers) — chunks de 5 Mo (multiple de 320 Kio)
+  var sessResp = await fetch(
+    'https://graph.microsoft.com/v1.0/drives/' + driveId + '/root:/' + encodeURI(path) + ':/createUploadSession',
+    {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + _spToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'rename' } })
+    }
+  );
+  if (!sessResp.ok) throw new Error('Session d\'upload impossible (' + sessResp.status + ')');
+  var session = await sessResp.json();
+  var uploadUrl = session.uploadUrl;
+
+  var CHUNK = 5 * 327680 * 1; // ~1.6 Mo (multiple de 320 Kio) -> on prend 5*320Kio
+  CHUNK = 5 * 320 * 1024; // 1 638 400 octets
+  var start = 0;
+  var total = file.size;
+  var lastMeta = null;
+  while (start < total) {
+    var end = Math.min(start + CHUNK, total);
+    var chunk = file.slice(start, end);
+    var put = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Length': String(end - start),
+        'Content-Range': 'bytes ' + start + '-' + (end - 1) + '/' + total
+      },
+      body: chunk
+    });
+    if (put.status === 202) {
+      // Continuer
+    } else if (put.status === 200 || put.status === 201) {
+      lastMeta = await put.json();
+    } else {
+      throw new Error('Chunk échoué (' + put.status + ')');
+    }
+    start = end;
+    if (onProgress) onProgress(Math.round((start / total) * 100));
+  }
+  if (lastMeta) return { name: lastMeta.name, webUrl: lastMeta.webUrl, id: lastMeta.id, size: lastMeta.size };
+  // Sinon, récupérer les métadonnées
+  var metaResp = await spGraphCall('GET', '/drives/' + driveId + '/root:/' + encodeURI(path));
+  return { name: metaResp.name, webUrl: metaResp.webUrl, id: metaResp.id, size: metaResp.size };
+}
+
+// Télécharge un fichier SharePoint par son id (déclenche le téléchargement navigateur)
+async function spDownloadFileById(fileId, fileName) {
+  if (!spUploadAvailable()) { toast('⚠️ Connectez-vous à SharePoint pour télécharger'); return; }
+  try {
+    var driveId = await spGetDriveId();
+    var resp = await fetch(
+      'https://graph.microsoft.com/v1.0/drives/' + driveId + '/items/' + fileId + '/content',
+      { headers: { 'Authorization': 'Bearer ' + _spToken } }
+    );
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var blob = await resp.blob();
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = fileName || 'fichier';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(url); document.body.removeChild(a); }, 100);
+  } catch(e) {
+    console.error('spDownloadFileById', e);
+    toast('⚠️ Téléchargement impossible');
+  }
+}
+
 
 // Sauvegarder le JSON principal sur SharePoint
 async function spSaveData(data) {
@@ -4776,7 +4929,9 @@ function renderRecapEvenementsHTML() {
           type: ev.type || '',
           animatrices: (ev.animatrices||[]),
           missions: Object.keys(assocSet),
-          journeePrev: !!ev.journeePrev
+          journeePrev: !!ev.journeePrev,
+          kind: 'evenement',
+          done: !!ev.done
         });
       });
     }
@@ -4810,9 +4965,52 @@ function renderRecapEvenementsHTML() {
         type: ev.type || '',
         animatrices: (ev.animatrices||[]),
         missions: Object.keys(assocSet),
-        journeePrev: !!ev.journeePrev
+        journeePrev: !!ev.journeePrev,
+        kind: 'evenement',
+        done: !!ev.done
       });
     });
+  });
+
+  // ===== Réunions et tâches (actions ACI, projets, évènements hors ACI) =====
+  var reunions = [];
+  state.actions.forEach(function(a) {
+    if (a.statut === 'archive') return;
+    ((a.planif && a.planif.reunions) || []).forEach(function(r) {
+      reunions.push({
+        parentId: a.id, parentKind: 'action', missionId: a.mission || '',
+        titre: r.titre || 'Réunion / tâche', date: r.date || '', heure: r.heure || '',
+        coords: (r.coords||[]), missions: [a.titre], done: !!r.done, kind: 'reunion'
+      });
+    });
+  });
+  (state.projets||[]).forEach(function(p) {
+    if (p.statut === 'archive') return;
+    ((p.planif && p.planif.reunions) || []).forEach(function(r) {
+      reunions.push({
+        parentId: p.id, parentKind: 'projet', missionId: '_projet',
+        titre: r.titre || 'Réunion / tâche', date: r.date || '', heure: r.heure || '',
+        coords: (r.coords||[]), missions: ['🚀 ' + p.titre], done: !!r.done, kind: 'reunion'
+      });
+    });
+  });
+  (state.evenements||[]).forEach(function(e) {
+    if (e.statut === 'archive') return;
+    ((e.planif && e.planif.reunions) || []).forEach(function(r) {
+      reunions.push({
+        parentId: e.id, parentKind: 'evenement', missionId: '_evenement',
+        titre: r.titre || 'Réunion / tâche', date: r.date || '', heure: r.heure || '',
+        coords: (r.coords||[]), missions: ['🎉 ' + (e.titre||e.nom||'Évènement')], done: !!r.done, kind: 'reunion'
+      });
+    });
+  });
+  // Tri chronologique des réunions
+  reunions.sort(function(x, y) {
+    if (!x.date && !y.date) return 0;
+    if (!x.date) return 1;
+    if (!y.date) return -1;
+    if (x.date !== y.date) return x.date < y.date ? -1 : 1;
+    return (x.heure||'99:99') < (y.heure||'99:99') ? -1 : 1;
   });
 
   // Trier les évènements par date (ceux sans date à la fin)
@@ -4862,7 +5060,13 @@ function renderRecapEvenementsHTML() {
     html += '<option value="' + m.id + '"' + (filterMission === m.id ? ' selected' : '') + '>' + escapeHtml(m.label) + '</option>';
   });
   html += '<option value="_projet"' + (filterMission === '_projet' ? ' selected' : '') + '>🚀 Projets hors ACI</option>';
+  html += '<option value="_evenement"' + (filterMission === '_evenement' ? ' selected' : '') + '>🎉 Évènements hors ACI</option>';
   html += '</select>';
+  // Filtrer aussi les réunions
+  var filteredReunions = reunions.filter(function(r) {
+    if (filterMission && r.missionId !== filterMission) return false;
+    return true;
+  });
   // Compteur résultats filtrés
   if (filterType || filterMission) {
     html += '<span style="font-size:11.5px;color:var(--teal-d);font-weight:600">' + filteredEvts.length + ' / ' + evts.length + ' évènement' + (evts.length > 1 ? 's' : '') + '</span>';
@@ -4929,13 +5133,86 @@ function renderRecapEvenementsHTML() {
         ? "openProjetModal('" + ev.actionId + "')"
         : "openActionModal('" + ev.actionId + "')";
 
+      var evDoneStyle = ev.done ? 'opacity:.55;text-decoration:line-through' : '';
       html += '<tr style="border-top:1px solid var(--line-soft);cursor:pointer" onclick="' + clickFn + '" onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'\'">'
-        + '<td style="padding:9px 14px;font-weight:600;color:var(--ink)">' + (ev.journeePrev ? '🎯 ' : '📅 ') + escapeHtml(ev.titre) + '</td>'
+        + '<td style="padding:9px 14px;font-weight:600;color:var(--ink);' + evDoneStyle + '">' + (ev.done ? '✅ ' : (ev.journeePrev ? '🎯 ' : '📅 ')) + escapeHtml(ev.titre) + '</td>'
         + '<td style="padding:9px 14px;color:' + (ev.date ? 'var(--ink-soft)' : 'var(--ink-mute)') + '">' + (ev.date ? fmt.date(ev.date) : '— à définir') + '</td>'
         + '<td style="padding:9px 14px;color:var(--ink-soft)">' + (ev.type ? escapeHtml(ev.type) : '—') + '</td>'
         + '<td style="padding:9px 14px">' + animHTML + '</td>'
         + '<td style="padding:9px 14px">' + missionsHTML + '</td>'
         + '<td style="padding:9px 14px">' + missionBadge + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+  html += '</div>';
+
+  // --- Tableau des réunions et tâches ---
+  html += '<div class="card" style="padding:0;overflow:hidden;margin-bottom:18px">';
+  html += '<div style="padding:12px 16px;background:var(--col-yoanna-p,#efe7f8);border-bottom:1px solid #d8c9ec">'
+    + '<strong style="font-size:13px;color:#5a3a8a">📌 Réunions et tâches</strong> '
+    + '<span style="font-size:11.5px;color:var(--ink-mute)">— ' + filteredReunions.length + ' élément' + (filteredReunions.length>1?'s':'') + '</span></div>';
+
+  if (!filteredReunions.length) {
+    html += '<div style="padding:20px;text-align:center;color:var(--ink-mute);font-size:12.5px;font-style:italic">'
+      + (reunions.length ? 'Aucune réunion/tâche ne correspond aux filtres sélectionnés.' : 'Aucune réunion ou tâche pour l\'instant.')
+      + '</div>';
+  } else {
+    html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">';
+    html += '<thead><tr style="background:var(--bg-soft);text-align:left">'
+      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Intitulé</th>'
+      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Date</th>'
+      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Heure</th>'
+      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Coordinatrices</th>'
+      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Rattachée à</th>'
+      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Mission / cadre</th>'
+      + '</tr></thead><tbody>';
+    filteredReunions.forEach(function(r) {
+      // Pastilles coordinatrices
+      var coordsHTML = '';
+      if (r.coords.length >= 3) {
+        var ec2 = collabColor('Ensemble');
+        coordsHTML = '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;background:' + ec2.bg + ';color:' + ec2.text + '">Ensemble</span>';
+      } else {
+        coordsHTML = r.coords.map(function(n) {
+          var c = collabColor(n);
+          return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;background:' + c.bg + ';color:' + c.text + ';margin-right:3px">' + escapeHtml(n) + '</span>';
+        }).join('');
+      }
+      if (!coordsHTML) coordsHTML = '<span style="color:var(--ink-mute)">—</span>';
+
+      var rMissionsHTML = r.missions.length
+        ? r.missions.map(function(m){ return '<span style="display:inline-block;padding:2px 7px;border-radius:8px;font-size:10.5px;background:var(--teal-p);color:var(--teal-d);margin:1px">' + escapeHtml(m) + '</span>'; }).join('')
+        : '<span style="color:var(--ink-mute)">—</span>';
+
+      // Badge cadre
+      var cadreBadge = '';
+      if (r.missionId === '_projet') {
+        cadreBadge = '<span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:10.5px;font-weight:600;background:#fdfae8;color:#a8930a;border:1px solid #e8dca0">🚀 Hors ACI</span>';
+      } else if (r.missionId === '_evenement') {
+        cadreBadge = '<span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:10.5px;font-weight:600;background:#fdf0f8;color:#a8306a;border:1px solid #ecc0da">🎉 Évènement</span>';
+      } else {
+        var mObj2 = MISSION_BY_ID[r.missionId];
+        if (mObj2) {
+          var mCV = '--' + mObj2.classe, mCPV = '--' + mObj2.classe + '-p';
+          cadreBadge = '<span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:10.5px;font-weight:600;background:var(' + mCPV + ');color:var(' + mCV + ')">' + escapeHtml(mObj2.short) + '</span>';
+        } else { cadreBadge = '<span style="color:var(--ink-mute)">—</span>'; }
+      }
+
+      var rClickFn = r.parentKind === 'projet'
+        ? "openProjetModal('" + r.parentId + "')"
+        : r.parentKind === 'evenement'
+          ? "openEvenementModal('" + r.parentId + "')"
+          : "openActionModal('" + r.parentId + "')";
+
+      var doneStyle = r.done ? 'opacity:.55;text-decoration:line-through' : '';
+      html += '<tr style="border-top:1px solid var(--line-soft);cursor:pointer" onclick="' + rClickFn + '" onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'\'">'
+        + '<td style="padding:9px 14px;font-weight:600;color:var(--ink);' + doneStyle + '">' + (r.done ? '✅ ' : '📌 ') + escapeHtml(r.titre) + '</td>'
+        + '<td style="padding:9px 14px;color:' + (r.date ? 'var(--ink-soft)' : 'var(--ink-mute)') + '">' + (r.date ? fmt.date(r.date) : '— Kanban') + '</td>'
+        + '<td style="padding:9px 14px;color:var(--ink-soft)">' + (r.heure ? escapeHtml(r.heure) : '—') + '</td>'
+        + '<td style="padding:9px 14px">' + coordsHTML + '</td>'
+        + '<td style="padding:9px 14px">' + rMissionsHTML + '</td>'
+        + '<td style="padding:9px 14px">' + cadreBadge + '</td>'
         + '</tr>';
     });
     html += '</tbody></table></div>';
@@ -5650,7 +5927,9 @@ function renderAgendaHTML() {
           _taskOwner: t.owner || '',
           _actionId: a.id,
           _taskId: t.id,
-          _taskDone: !!t.done
+          _taskDone: !!t.done,
+          _heure: t.heure || '',
+          _visio: t.visio || ''
         }));
       });
     });
@@ -5668,15 +5947,15 @@ function renderAgendaHTML() {
       if (p.statut === 'archive') return;
       if (p.fin) add(p.fin, { id:p.id, titre:'🚀 '+p.titre, _isHorsACI:true, _horsAciType:'projet', _horsAciParentId:p.id, echeance:p.fin, statut:p.statut||'a_lancer', owner:p.responsable||'' });
       (p.tasks||[]).forEach(function(t) {
-        if (t.due) add(t.due, { id:'pt_'+t.id, titre:'🚀 '+t.label, _isHorsACI:true, _horsAciType:'projet', _horsAciParentId:p.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:p.titre, _taskDone:!!t.done });
+        if (t.due) add(t.due, { id:'pt_'+t.id, titre:'🚀 '+t.label, _isHorsACI:true, _horsAciType:'projet', _horsAciParentId:p.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:p.titre, _taskDone:!!t.done, _heure:t.heure||'', _visio:t.visio||'' });
       });
     });
     // Hors ACI : évènements (date + tâches)
     (state.evenements||[]).forEach(function(e) {
       if (e.statut === 'archive') return;
-      if (e.date) add(e.date, { id:e.id, titre:'🎉 '+(e.titre||e.nom||'Évènement'), _isHorsACI:true, _horsAciType:'evenement', _horsAciParentId:e.id, echeance:e.date, statut:e.statut||'a_lancer', owner:e.responsable||'' });
+      if (e.date) add(e.date, { id:e.id, titre:'🎉 '+(e.titre||e.nom||'Évènement'), _isHorsACI:true, _horsAciType:'evenement', _horsAciParentId:e.id, echeance:e.date, statut:e.statut||'a_lancer', owner:'Ensemble', _evtDone:!!e.done, _heure:e.heure||'', _visio:e.visio||'' });
       (e.tasks||[]).forEach(function(t) {
-        if (t.due) add(t.due, { id:'et_'+t.id, titre:'🎉 '+t.label, _isHorsACI:true, _horsAciType:'evenement', _horsAciParentId:e.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:e.titre||e.nom||'', _taskDone:!!t.done });
+        if (t.due) add(t.due, { id:'et_'+t.id, titre:'🎉 '+t.label, _isHorsACI:true, _horsAciType:'evenement', _horsAciParentId:e.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:e.titre||e.nom||'', _taskDone:!!t.done, _heure:t.heure||'', _visio:t.visio||'' });
       });
     });
     // Hors ACI : gestion interne (tâches avec échéance)
@@ -5700,6 +5979,9 @@ function renderAgendaHTML() {
           _planifEvtId: ev.id,
           _animatrices: (ev.animatrices || []).slice(),
           _journeePrev: !!ev.journeePrev,
+          _heure: ev.heure || '',
+          _visio: ev.visio || '',
+          _evtDone: !!ev.done,
           echeance: ev.date,
           lieu: ev.lieu || ''
         });
@@ -5720,6 +6002,9 @@ function renderAgendaHTML() {
           _planifEvtId: ev.id,
           _animatrices: (ev.animatrices || []).slice(),
           _journeePrev: !!ev.journeePrev,
+          _heure: ev.heure || '',
+          _visio: ev.visio || '',
+          _evtDone: !!ev.done,
           echeance: ev.date,
           lieu: ev.lieu || ''
         });
@@ -5750,7 +6035,25 @@ function renderAgendaHTML() {
       if (!d) { gridHTML += '<div></div>'; return; }
       var dateStr = year + '-' + String(month+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
       var isToday = dateStr === todayStr;
-      var allItems = byDate[dateStr] || [];
+      var allItems = (byDate[dateStr] || []).slice();
+      // Tri des items du jour : évènements de planif d'abord (jamais coupés par le slice),
+      // puis par heure croissante, puis le reste. Garantit la visibilité des évènements.
+      function itemHeure(it) {
+        return it._heure || it.heure || '';
+      }
+      function itemRank(it) {
+        // 0 = évènement de planif (priorité maximale), 1 = évènement hors ACI, 2 = autres
+        if (it._isPlanifEvt) return 0;
+        if (it._isHorsACI && !it._parentLabel) return 1; // évènement hors ACI "nu"
+        return 2;
+      }
+      allItems.sort(function(x, y) {
+        var rx = itemRank(x), ry = itemRank(y);
+        if (rx !== ry) return rx - ry;
+        var hx = itemHeure(x) || '99:99', hy = itemHeure(y) || '99:99';
+        if (hx !== hy) return hx < hy ? -1 : 1;
+        return 0;
+      });
       var isPast = dateStr < todayStr;
 
       // Appliquer le filtre (attribution, urgences ou ensemble)
@@ -5794,7 +6097,7 @@ function renderAgendaHTML() {
       if (allItems.length > 0) gridHTML += '<span style="margin-left:3px;font-size:9px;background:var(--teal);color:white;border-radius:6px;padding:0 4px">' + allItems.length + '</span>';
       gridHTML += '</div>';
 
-      items.slice(0,3).forEach(function(a) {
+      items.slice(0,4).forEach(function(a) {
         var bgColor, textColor = 'white';
         var bgStyle = ''; // pour dégradé bicolore éventuel
         if (a._isPlanifEvt) {
@@ -5839,22 +6142,38 @@ function renderAgendaHTML() {
           var openFn = a._planifProjetId
             ? ('openProjetModal(\'' + a._planifProjetId + '\')')
             : ('openActionModal(\'' + a._planifActionId + '\')');
+          var evtDone = !!a._evtDone;
+          var hLabel = (a._heure ? a._heure + ' ' : '') + label;
+          var visioBtn = a._visio
+            ? '<a href="' + escapeHtml(a._visio) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Rejoindre la visio" style="text-decoration:none;margin-left:2px">📹</a>'
+            : '';
           gridHTML += '<div onclick="event.stopPropagation();' + openFn + '" '
             +'style="font-size:9px;' + styleBg + 'border-radius:3px;'
-            +'padding:1px 3px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;font-weight:600" '
-            +'title="' + escapeHtml(label) + (a.lieu ? ' — ' + escapeHtml(a.lieu) : '') + '">'
-            + escapeHtml(label.slice(0,20)) + '</div>';
+            +'padding:1px 3px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;font-weight:600'
+            +(evtDone ? ';opacity:.5;text-decoration:line-through' : '') + '" '
+            +'title="' + escapeHtml(hLabel) + (a.lieu ? ' — ' + escapeHtml(a.lieu) : '') + '">'
+            + (evtDone ? '✅ ' : '') + escapeHtml(hLabel.slice(0,18)) + visioBtn + '</div>';
         } else if (a._isJalon) {
+          var jHeure = a.heure || '';
+          var jLabel = (jHeure ? jHeure + ' ' : '') + label;
+          var jVisio = a.visio
+            ? '<a href="' + escapeHtml(a.visio) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Rejoindre la visio" style="text-decoration:none;margin-left:2px">📹</a>'
+            : '';
           gridHTML += '<div draggable="true" '
             +'ondragstart="agendaJalonDragStart(event,\'' + a.id + '\')" '
             +'ondragend="agendaJalonDragEnd(event)" '
             +'onclick="event.stopPropagation();openJalonModal(\'' + a.date + '\',\'' + a.id + '\')" '
             +'style="font-size:9px;background:' + bgColor + ';color:' + textColor + ';border-radius:3px;'
             +'padding:1px 3px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" '
-            +'title="' + escapeHtml(label) + '">'
-            + escapeHtml(label.slice(0,20)) + '</div>';
+            +'title="' + escapeHtml(jLabel) + '">'
+            + escapeHtml(jLabel.slice(0,18)) + jVisio + '</div>';
         } else if (a._isTask) {
           var taskIsDone = !!a._taskDone;
+          var tHeure = a._heure || '';
+          var tLabel = (tHeure ? tHeure + ' ' : '') + label;
+          var tVisio = a._visio
+            ? '<a href="' + escapeHtml(a._visio) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Rejoindre la visio" style="text-decoration:none;margin-left:2px">📹</a>'
+            : '';
           gridHTML += '<div draggable="true" '
             +'ondragstart="agendaTaskDragStart(event,\'' + a._actionId + '\',\'' + a._taskId + '\')" '
             +'ondragend="agendaJalonDragEnd(event)" '
@@ -5862,22 +6181,29 @@ function renderAgendaHTML() {
             +'style="font-size:9px;background:' + bgColor + ';color:' + textColor + ';border-radius:3px;'
             +'padding:1px 3px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer'
             +(taskIsDone ? ';opacity:.5;text-decoration:line-through' : '') + '" '
-            +'title="' + escapeHtml(label) + '">'
-            + escapeHtml(label.slice(0,20)) + '</div>';
+            +'title="' + escapeHtml(tLabel) + '">'
+            + escapeHtml(tLabel.slice(0,18)) + tVisio + '</div>';
         } else if (a._isHorsACI) {
           // Extraire le taskId réel depuis a.id (format : 'pt_xyz', 'et_xyz', 'ot_xyz', ou id parent)
           var haTaskId = '';
           if (a.id && (a.id.startsWith('pt_') || a.id.startsWith('et_') || a.id.startsWith('ot_'))) {
             haTaskId = a.id.slice(3);
           }
+          var haDone = !!a._taskDone || !!a._evtDone;
+          var haHeure = a._heure || '';
+          var haLabel = (haHeure ? haHeure + ' ' : '') + label;
+          var haVisio = a._visio
+            ? '<a href="' + escapeHtml(a._visio) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Rejoindre la visio" style="text-decoration:none;margin-left:2px">📹</a>'
+            : '';
           gridHTML += '<div draggable="true" '
             +'ondragstart="agendaHorsACIDragStart(event,\'' + a.id + '\',\'' + (a._horsAciType||'') + '\',\'' + (a._horsAciParentId||'') + '\')" '
             +'ondragend="agendaJalonDragEnd(event)" '
             +'onclick="event.stopPropagation();openHorsACITaskModal(\'' + (a._horsAciType||'') + '\',\'' + (a._horsAciParentId||'') + '\',\'' + haTaskId + '\')" '
             +'style="font-size:9px;background:' + bgColor + ';color:' + textColor + ';border-radius:3px;'
-            +'padding:1px 3px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" '
-            +'title="' + escapeHtml(label) + '">'
-            + escapeHtml(label.slice(0,20)) + '</div>';
+            +'padding:1px 3px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer'
+            +(haDone ? ';opacity:.5;text-decoration:line-through' : '') + '" '
+            +'title="' + escapeHtml(haLabel) + '">'
+            + (haDone ? '✅ ' : '') + escapeHtml(haLabel.slice(0,18)) + haVisio + '</div>';
         } else {
           gridHTML += '<div onclick="event.stopPropagation();openActionModal(\'' + a.id + '\')" '
             +'style="font-size:9px;background:' + bgColor + ';color:' + textColor + ';border-radius:3px;'
@@ -5886,8 +6212,8 @@ function renderAgendaHTML() {
             + escapeHtml(label.slice(0,20)) + '</div>';
         }
       });
-      if (allItems.length > 3) {
-        gridHTML += '<div style="font-size:9px;color:var(--ink-mute)">+' + (allItems.length-3) + ' autres</div>';
+      if (items.length > 4) {
+        gridHTML += '<div style="font-size:9px;color:var(--ink-mute)">+' + (items.length-4) + ' autres</div>';
       }
       gridHTML += '</div>';
     });
@@ -6020,30 +6346,30 @@ function openDayPanel(dateStr) {
   // Collecte des items de ce jour (sans filtre attribution)
   var allItems = [];
   (state.jalons||[]).forEach(function(j) {
-    if (j.date === dateStr) allItems.push({ label: j.titre, owner: j.attribue||'', type: 'jalon', id: j.id, date: j.date });
+    if (j.date === dateStr) allItems.push({ label: j.titre, owner: j.attribue||'', type: 'jalon', id: j.id, date: j.date, heure: j.heure||'', visio: j.visio||'' });
   });
   (state.actions||[]).forEach(function(a) {
     if (a.statut === 'archive') return;
     if (a.echeance === dateStr) allItems.push({ label: a.titre, owner: '', type: 'aci', id: a.id });
     (a.tasks||[]).forEach(function(t) {
-      if (t.due === dateStr) allItems.push({ label: t.label, owner: t.owner||'', type: 'task', actionId: a.id, taskId: t.id, note: t.note||'', done: !!t.done });
+      if (t.due === dateStr) allItems.push({ label: t.label, owner: t.owner||'', type: 'task', actionId: a.id, taskId: t.id, note: t.note||'', done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
     });
   });
   (state.projets||[]).forEach(function(p) {
     if (p.fin === dateStr) allItems.push({ label: '🚀 '+p.titre, owner: p.responsable||'', type: 'horsaci', horsAciType:'projet', parentId:p.id });
     (p.tasks||[]).forEach(function(t) {
-      if (t.due === dateStr) allItems.push({ label: '🚀 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'projet', parentId:p.id, taskId:t.id, done: !!t.done });
+      if (t.due === dateStr) allItems.push({ label: '🚀 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'projet', parentId:p.id, taskId:t.id, done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
     });
   });
   (state.evenements||[]).forEach(function(e) {
-    if (e.date === dateStr) allItems.push({ label: '🎉 '+(e.titre||e.nom||'Évènement'), owner: e.responsable||'', type: 'horsaci', horsAciType:'evenement', parentId:e.id });
+    if (e.date === dateStr) allItems.push({ label: '🎉 '+(e.titre||e.nom||'Évènement'), owner: 'Ensemble', type: 'horsaci', horsAciType:'evenement', parentId:e.id, done: !!e.done, heure: e.heure||'', visio: e.visio||'' });
     (e.tasks||[]).forEach(function(t) {
-      if (t.due === dateStr) allItems.push({ label: '🎉 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'evenement', parentId:e.id, taskId:t.id, done: !!t.done });
+      if (t.due === dateStr) allItems.push({ label: '🎉 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'evenement', parentId:e.id, taskId:t.id, done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
     });
   });
   (state.orga_interne||[]).forEach(function(cat) {
     (cat.tasks||[]).forEach(function(t) {
-      if (t.due === dateStr) allItems.push({ label: '🏢 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'orga', parentId:cat.id, taskId:t.id, done: !!t.done });
+      if (t.due === dateStr) allItems.push({ label: '🏢 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'orga', parentId:cat.id, taskId:t.id, done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
     });
   });
   // Évènements de Planification des actions ACI
@@ -6055,7 +6381,7 @@ function openDayPanel(dateStr) {
       if (ev.date === dateStr) {
         var anims = (ev.animatrices||[]);
         var ownerLabel = anims.length >= 3 ? 'Ensemble' : anims.join(' + ');
-        allItems.push({ label: '📅 '+(ev.titre||ev.type||'Évènement'), owner: ownerLabel, type: 'planifevt', actionId: a.id });
+        allItems.push({ label: '📅 '+(ev.titre||ev.type||'Évènement'), owner: ownerLabel, type: 'planifevt', actionId: a.id, done: !!ev.done, heure: ev.heure||'', visio: ev.visio||'' });
       }
     });
   });
@@ -6068,9 +6394,16 @@ function openDayPanel(dateStr) {
       if (ev.date === dateStr) {
         var anims = (ev.animatrices||[]);
         var ownerLabel = anims.length >= 3 ? 'Ensemble' : anims.join(' + ');
-        allItems.push({ label: '🚀 '+(ev.titre||ev.type||'Évènement'), owner: ownerLabel, type: 'planifevtprojet', projetId: p.id });
+        allItems.push({ label: '🚀 '+(ev.titre||ev.type||'Évènement'), owner: ownerLabel, type: 'planifevtprojet', projetId: p.id, done: !!ev.done, heure: ev.heure||'', visio: ev.visio||'' });
       }
     });
+  });
+
+  // Tri par heure (les sans-heure en fin), évènements avant tâches à heure égale
+  allItems.sort(function(x, y) {
+    var hx = x.heure || '99:99', hy = y.heure || '99:99';
+    if (hx !== hy) return hx < hy ? -1 : 1;
+    return 0;
   });
 
   var d = new Date(dateStr + 'T12:00:00');
@@ -6103,11 +6436,16 @@ function openDayPanel(dateStr) {
                 : 'openHorsACITaskModal(\'' + item.horsAciType + '\',\'' + item.parentId + '\',\'' + (item.taskId||'') + '\')';
 
       var itemDone = !!item.done;
+      var heurePrefix = item.heure ? '<span style="font-size:11px;font-weight:700;color:var(--teal-d);min-width:38px">' + escapeHtml(item.heure) + '</span>' : '';
+      var visioBtn = item.visio
+        ? '<a href="' + escapeHtml(item.visio) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Rejoindre la visio" style="font-size:14px;text-decoration:none;margin-right:4px">📹</a>'
+        : '';
       html += '<div onclick="' + clickFn + '" style="display:flex;align-items:center;gap:10px;padding:8px 10px;'
         +'border-radius:7px;border:1px solid var(--line-soft);margin-bottom:5px;cursor:pointer;'
         +'background:' + (itemDone ? 'var(--bg-soft)' : 'var(--surface)') + ';opacity:' + (itemDone ? '.6' : '1') + '" '
         +'onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'' + (itemDone ? 'var(--bg-soft)' : 'var(--surface)') + '\'">';
       html += '<span style="width:10px;height:10px;border-radius:50%;background:' + dotBg + ';flex-shrink:0"></span>';
+      if (heurePrefix) html += heurePrefix;
       if (itemDone) html += '<span style="font-size:11px;color:var(--ok);margin-right:2px">✅</span>';
       if (item.owner) html += '<span style="font-size:11px;font-weight:700;color:' + (col?col.text:'var(--ink-mute)') + ';min-width:44px">' + escapeHtml(item.owner.slice(0,7)) + '</span>';
       else html += '<span style="min-width:44px"></span>';
@@ -6119,6 +6457,7 @@ function openDayPanel(dateStr) {
       } else {
         html += '<span style="flex:1;font-size:13px;color:var(--ink);' + (itemDone ? 'text-decoration:line-through' : '') + '">' + escapeHtml(item.label) + '</span>';
       }
+      if (visioBtn) html += visioBtn;
       html += '<span style="font-size:11px;color:var(--ink-mute)">›</span>';
       html += '</div>';
     });
@@ -7235,6 +7574,7 @@ function openProjetModal(id) {
       return {
         id: ev.id || makeId('evt'),
         titre: ev.titre || '', type: ev.type || '', date: ev.date || '', lieu: ev.lieu || '',
+        heure: ev.heure || '', visio: ev.visio || '', done: !!ev.done,
         animatrices: (ev.animatrices || []).slice(),
         journeePrev: !!ev.journeePrev, prevThemes: (ev.prevThemes || []).slice(),
         prevActionIds: (ev.prevActionIds || []).slice(),
@@ -7263,6 +7603,7 @@ function openProjetModal(id) {
     var pels = document.getElementById('projet-evt-lies-section'); if (pels) pels.style.display = 'none';
   }
   switchProjetTab('descriptif');
+  makeDropZone('projet-panel-planification', 'projet-links-list', 'projets', appendProjetLinkRow);
   modal.classList.add('show');
 }
 
@@ -7290,6 +7631,7 @@ function saveProjet() {
     return {
       id: ev.id || makeId('evt'),
       titre: (ev.titre||'').trim(), type: ev.type || '', date: ev.date || '', lieu: (ev.lieu||'').trim(),
+      heure: ev.heure || '', visio: (ev.visio||'').trim(), done: !!ev.done,
       animatrices: (ev.animatrices||[]).slice(),
       journeePrev: !!ev.journeePrev, prevThemes: (ev.prevThemes||[]).slice(),
       prevActionIds: (ev.prevActionIds||[]).slice(),
@@ -7313,14 +7655,7 @@ function saveProjet() {
   // Agréger les réunions/tâches
   var projetReunions = exportReunionBlocks();
   projetReunions.forEach(function(r) {
-    tasks.push({
-      id: r.id, label: r.titre,
-      owner: (r.coords && r.coords.length === 1) ? r.coords[0] : ((r.coords && r.coords.length >= 2) ? 'Ensemble' : ''),
-      _coords: (r.coords||[]).slice(),
-      due: r.date || '', note: r.note || '', done: !!r.done,
-      doneAt: r.done ? (new Date().toISOString().slice(0,10)) : '',
-      subtasks: (r.subtasks||[]).slice(), _isReunion: true, createdAt: Date.now()
-    });
+    tasks.push(reunionToTask(r));
   });
 
   const links = [];
@@ -7328,7 +7663,7 @@ function saveProjet() {
     const label = row.querySelector('.plnk-label').value.trim();
     const url = row.querySelector('.plnk-url').value.trim();
     if (!label && !url) return;
-    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url });
+    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url, fileId: row.dataset.fileId || '' });
   });
 
   const data = {
@@ -7430,12 +7765,17 @@ function addProjetTask() { appendProjetTaskRow(null); }
 function appendProjetLinkRow(lk) {
   const div = document.createElement('div'); div.className = 'plnk-row';
   div.dataset.linkId = lk ? lk.id : makeId('lnk');
+  if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+  var dlBtn = (lk && lk.fileId)
+    ? '<button type="button" class="btn btn-sm" title="Télécharger" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\')" style="padding:4px 8px">⬇️</button>'
+    : '';
   div.innerHTML = `
     <input class="plnk-label" type="text" value="${escapeHtml(lk?lk.label:'')}" placeholder="Nom du document…"
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
     <input class="plnk-url" type="text" value="${escapeHtml(lk?lk.url:'')}" placeholder="Lien Drive ou URL (https://…)"
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
+    ${dlBtn}
     <button type="button" class="btn btn-sm btn-danger-text" onclick="this.parentElement.remove()">×</button>
   `;
   document.getElementById('projet-links-list').appendChild(div);
@@ -7557,6 +7897,7 @@ function openEvenementModal(id) {
     document.getElementById('e-statut').value = e.statut || 'a_organiser';
     document.getElementById('e-date').value = e.date || '';
     document.getElementById('e-heure').value = e.heure || '';
+    var evVisioEl = document.getElementById('e-visio'); if (evVisioEl) evVisioEl.value = e.visio || '';
     document.getElementById('e-lieu').value = e.lieu || '';
     selR.value = e.responsable || '';
     document.getElementById('e-participants').value = e.participants || '';
@@ -7569,7 +7910,7 @@ function openEvenementModal(id) {
     (e.links||[]).forEach(lk => appendEvenementLinkRow(lk));
     loadReunionBlocks(e.planif, 'evenement');
   } else {
-    ['e-id','e-titre','e-description','e-date','e-heure','e-lieu','e-participants','e-budget','e-financement'].forEach(eid => {
+    ['e-id','e-titre','e-description','e-date','e-heure','e-visio','e-lieu','e-participants','e-budget','e-financement'].forEach(eid => {
       const el = document.getElementById(eid); if(el) el.value = '';
     });
     document.getElementById('e-type').value = 'gala';
@@ -7581,6 +7922,7 @@ function openEvenementModal(id) {
     renderReunionBlocks();
   }
   switchEvenementTab('descriptif');
+  makeDropZone('evenement-panel-planification', 'evenement-links-list', 'evenements', appendEvenementLinkRow);
   modal.classList.add('show');
 }
 
@@ -7609,31 +7951,29 @@ function saveEvenement() {
     const label = row.querySelector('.elnk-label').value.trim();
     const url = row.querySelector('.elnk-url').value.trim();
     if (!label && !url) return;
-    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url });
+    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url, fileId: row.dataset.fileId || '' });
   });
 
   // Réunions et tâches
   var evtReunions = exportReunionBlocks();
   evtReunions.forEach(function(r) {
-    tasks.push({
-      id: r.id, label: r.titre,
-      owner: (r.coords && r.coords.length === 1) ? r.coords[0] : ((r.coords && r.coords.length >= 2) ? 'Ensemble' : ''),
-      _coords: (r.coords||[]).slice(),
-      due: r.date || '', note: r.note || '', done: !!r.done,
-      doneAt: r.done ? (new Date().toISOString().slice(0,10)) : '',
-      subtasks: (r.subtasks||[]).slice(), _isReunion: true, createdAt: Date.now()
-    });
+    tasks.push(reunionToTask(r));
   });
 
+  var evtStatut = document.getElementById('e-statut').value;
   const data = {
     id, titre,
     description: document.getElementById('e-description').value.trim(),
     type: document.getElementById('e-type').value,
-    statut: document.getElementById('e-statut').value,
+    statut: evtStatut,
     date,
     heure: document.getElementById('e-heure').value,
+    visio: (document.getElementById('e-visio') ? document.getElementById('e-visio').value.trim() : ''),
+    done: evtStatut === 'realise',
     lieu: document.getElementById('e-lieu').value.trim(),
     responsable: document.getElementById('e-responsable').value,
+    // Évènement Hors ACI : toujours animé par les 3 coordinatrices (Ensemble)
+    animatrices: ['Yayi','Yoanna','Margaux'],
     participants: parseInt(document.getElementById('e-participants').value) || 0,
     budget: parseFloat(document.getElementById('e-budget').value) || 0,
     financement: document.getElementById('e-financement').value.trim(),
@@ -7722,12 +8062,17 @@ function addEvenementTask() { appendEvenementTaskRow(null); }
 function appendEvenementLinkRow(lk) {
   const div = document.createElement('div'); div.className = 'elnk-row';
   div.dataset.linkId = lk ? lk.id : makeId('lnk');
+  if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+  var dlBtn = (lk && lk.fileId)
+    ? '<button type="button" class="btn btn-sm" title="Télécharger" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\')" style="padding:4px 8px">⬇️</button>'
+    : '';
   div.innerHTML = `
     <input class="elnk-label" type="text" value="${escapeHtml(lk?lk.label:'')}" placeholder="Nom du document…"
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
     <input class="elnk-url" type="text" value="${escapeHtml(lk?lk.url:'')}" placeholder="Lien Drive ou URL (https://…)"
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
+    ${dlBtn}
     <button type="button" class="btn btn-sm btn-danger-text" onclick="this.parentElement.remove()">×</button>
   `;
   document.getElementById('evenement-links-list').appendChild(div);
@@ -8496,10 +8841,16 @@ function openJalonModal(dateStr, jalonId) {
     document.getElementById('j-titre').value = j.titre || '';
     document.getElementById('j-note').value = j.note || '';
     document.getElementById('j-deadline').value = j.date || '';
+    var jHeureEl = document.getElementById('j-heure'); if (jHeureEl) jHeureEl.value = j.heure || '';
+    var jVisioEl = document.getElementById('j-visio'); if (jVisioEl) jVisioEl.value = j.visio || '';
     var radios = document.querySelectorAll('input[name="j-type"]');
     radios.forEach(function(r){ r.checked = (r.value === (j.type || 'normal')); });
-    var attrRadios = document.querySelectorAll('input[name="j-attribue"]');
-    attrRadios.forEach(function(r){ r.checked = (r.value === (j.attribue || 'Yayi')); });
+    // Attribution multiple : reconstruire la liste des coords
+    var jCoords = Array.isArray(j.coords) && j.coords.length
+      ? j.coords
+      : (j.attribue === 'Ensemble' ? ['Yayi','Yoanna','Margaux'] : (j.attribue ? [j.attribue] : ['Yayi']));
+    var attrChecks = document.querySelectorAll('input[name="j-attribue"]');
+    attrChecks.forEach(function(r){ r.checked = jCoords.indexOf(r.value) >= 0; });
   } else {
     document.getElementById('jalon-modal-title').textContent = '📍 Ajouter une tâche';
     var label = dateStr ? fmt.dateLong(dateStr) : '';
@@ -8507,10 +8858,12 @@ function openJalonModal(dateStr, jalonId) {
     document.getElementById('j-titre').value = '';
     document.getElementById('j-note').value = '';
     document.getElementById('j-deadline').value = dateStr || '';
+    var jHeureEl2 = document.getElementById('j-heure'); if (jHeureEl2) jHeureEl2.value = '';
+    var jVisioEl2 = document.getElementById('j-visio'); if (jVisioEl2) jVisioEl2.value = '';
     var radios2 = document.querySelectorAll('input[name="j-type"]');
     radios2.forEach(function(r){ r.checked = (r.value === 'normal'); });
-    var attrRadios2 = document.querySelectorAll('input[name="j-attribue"]');
-    attrRadios2.forEach(function(r){ r.checked = (r.value === 'Yayi'); });
+    var attrChecks2 = document.querySelectorAll('input[name="j-attribue"]');
+    attrChecks2.forEach(function(r){ r.checked = (r.value === 'Yayi'); });
   }
   // Charger la to-do list
   _jalonDraftSubtasks = [];
@@ -8548,8 +8901,14 @@ function saveJalon() {
 
   var typeRadio = document.querySelector('input[name="j-type"]:checked');
   var type = typeRadio ? typeRadio.value : 'normal';
-  var attrRadio = document.querySelector('input[name="j-attribue"]:checked');
-  var attribue = attrRadio ? attrRadio.value : 'Yayi';
+  // Attribution multiple : lire toutes les cases cochées
+  var attrChecked = Array.prototype.slice.call(document.querySelectorAll('input[name="j-attribue"]:checked')).map(function(el){ return el.value; });
+  if (!attrChecked.length) attrChecked = ['Yayi'];
+  // Étiquette d'attribution : 3 cochées = Ensemble, sinon liste
+  var attribue = (attrChecked.length >= 3) ? 'Ensemble' : (attrChecked.length === 1 ? attrChecked[0] : 'Ensemble');
+  var coords = attrChecked.slice();
+  var heure = document.getElementById('j-heure') ? document.getElementById('j-heure').value : '';
+  var visio = document.getElementById('j-visio') ? document.getElementById('j-visio').value.trim() : '';
   var existingId = document.getElementById('j-id').value;
   var id = existingId || makeId('jal');
 
@@ -8565,7 +8924,8 @@ function saveJalon() {
     : (document.getElementById('j-rattach-cible') ? document.getElementById('j-rattach-cible').value : '');
   if (rcat && rcible) {
     var migrated = migrateJalonToFiche(rcat, rcible, {
-      titre: titre, note: note, date: deadline, attribue: attribue, subtasks: subtasks
+      titre: titre, note: note, date: deadline, attribue: attribue, coords: coords,
+      heure: heure, visio: visio, subtasks: subtasks
     });
     if (migrated) {
       // Si on éditait un jalon existant, on le retire (il a migré)
@@ -8583,8 +8943,11 @@ function saveJalon() {
     titre: titre,
     note: note,
     date: deadline,
+    heure: heure,
+    visio: visio,
     type: type,
     attribue: attribue,
+    coords: coords,
     statut: 'a_faire',
     subtasks: subtasks,
     createdAt: existingJalon ? (existingJalon.createdAt||Date.now()) : Date.now()
@@ -8610,8 +8973,12 @@ function jalonToReunion(taskData) {
   return {
     id: makeId('reu'),
     titre: taskData.titre,
-    coords: taskData.attribue ? [taskData.attribue] : [],
+    coords: Array.isArray(taskData.coords) && taskData.coords.length
+      ? taskData.coords.slice()
+      : (taskData.attribue ? [taskData.attribue] : []),
     date: taskData.date || '',
+    heure: taskData.heure || '',
+    visio: taskData.visio || '',
     done: false,
     note: taskData.note || '',
     subtasks: (taskData.subtasks || []).map(function(s){
@@ -8708,6 +9075,8 @@ function reunionToTask(r) {
     owner: (r.coords && r.coords.length === 1) ? r.coords[0] : ((r.coords && r.coords.length >= 2) ? 'Ensemble' : ''),
     _coords: (r.coords||[]).slice(),
     due: r.date || '',
+    heure: r.heure || '',
+    visio: r.visio || '',
     note: r.note || '',
     done: !!r.done,
     doneAt: r.done ? (new Date().toISOString().slice(0,10)) : '',
@@ -9453,10 +9822,14 @@ function syncReunionBlocksFromDOM() {
   _reunionBlocks.forEach(function(r, i) {
     var titreEl = document.getElementById('reu-titre-' + i);
     var dateEl = document.getElementById('reu-date-' + i);
+    var heureEl = document.getElementById('reu-heure-' + i);
+    var visioEl = document.getElementById('reu-visio-' + i);
     var doneEl = document.getElementById('reu-done-' + i);
     var noteEl = document.getElementById('reu-note-' + i);
     if (titreEl) r.titre = titreEl.value;
     if (dateEl) r.date = dateEl.value;
+    if (heureEl) r.heure = heureEl.value;
+    if (visioEl) r.visio = visioEl.value;
     if (doneEl) r.done = doneEl.checked;
     if (noteEl) r.note = noteEl.value;
     (r.subtasks || []).forEach(function(st, si) {
@@ -9513,14 +9886,19 @@ function renderReunionBlocks() {
           + '</label>';
       });
       html += '</div></div>';
-      // Date + statut fait
+      // Date + heure + statut fait
       html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">'
-        + '<div class="form-field" style="flex:1;min-width:150px"><label>Date <small style="font-weight:400;color:var(--ink-mute)">(vide = Kanban)</small></label>'
+        + '<div class="form-field" style="flex:1;min-width:130px"><label>Date <small style="font-weight:400;color:var(--ink-mute)">(vide = Kanban)</small></label>'
         + '<input type="date" id="reu-date-' + i + '" value="' + escapeHtml(r.date || '') + '" onchange="syncReunionBlocksFromDOM();renderReunionBlocks();" /></div>'
+        + '<div class="form-field" style="width:110px"><label>Heure</label>'
+        + '<input type="time" id="reu-heure-' + i + '" value="' + escapeHtml(r.heure || '') + '" onchange="syncReunionBlocksFromDOM();" /></div>'
         + '<div class="form-field" style="display:flex;align-items:flex-end;padding-bottom:8px">'
         + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;cursor:pointer">'
         + '<input type="checkbox" id="reu-done-' + i + '" ' + (r.done ? 'checked' : '') + ' onchange="syncReunionBlocksFromDOM();renderReunionBlocks();" style="width:15px;height:15px;cursor:pointer;accent-color:var(--teal)" /> Terminé</label>'
         + '</div></div>';
+      // Lien visio
+      html += '<div class="form-field" style="margin-bottom:8px"><label>📹 Lien visio <small style="font-weight:400;color:var(--ink-mute)">(Teams, Zoom, Meet…)</small></label>'
+        + '<input type="url" id="reu-visio-' + i + '" value="' + escapeHtml(r.visio || '') + '" placeholder="https://teams.microsoft.com/..." onblur="syncReunionBlocksFromDOM();" /></div>';
       // Note
       html += '<div class="form-field" style="margin-bottom:8px"><label>Note</label>'
         + '<input type="text" id="reu-note-' + i + '" value="' + escapeHtml(r.note || '') + '" placeholder="Précision, ordre du jour, lien visio…" onblur="syncReunionBlocksFromDOM();" /></div>';
@@ -9554,6 +9932,8 @@ function loadReunionBlocks(planif, context) {
       titre: r.titre || '',
       coords: (r.coords || []).slice(),
       date: r.date || '',
+      heure: r.heure || '',
+      visio: r.visio || '',
       done: !!r.done,
       note: r.note || '',
       subtasks: (r.subtasks || []).map(function(s){ return Object.assign({}, s); }),
@@ -9574,18 +9954,21 @@ function exportReunionBlocks() {
         titre: r.titre.trim(),
         coords: (r.coords || []).slice(),
         date: r.date || '',
+        heure: r.heure || '',
+        visio: (r.visio || '').trim(),
         done: !!r.done,
         note: (r.note || '').trim(),
         subtasks: (r.subtasks || []).filter(function(s){ return (s.label||'').trim(); })
           .map(function(s){ return { id: s.id, label: s.label.trim(), done: !!s.done }; })
       };
     });
-  // Tri chronologique (datées d'abord, sans date à la fin)
+  // Tri chronologique (datées d'abord, sans date à la fin ; à date égale, par heure)
   out.sort(function(a, b) {
     if (!a.date && !b.date) return 0;
     if (!a.date) return 1;
     if (!b.date) return -1;
-    return a.date < b.date ? -1 : 1;
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    return (a.heure||'99:99') < (b.heure||'99:99') ? -1 : 1;
   });
   return out;
 }
@@ -9635,6 +10018,9 @@ function syncProjetEvtBlocksFromDOM() {
     var t = document.getElementById('pevt-titre-' + i);    if (t) ev.titre = t.value;
     var ty = document.getElementById('pevt-type-' + i);    if (ty) ev.type = ty.value;
     var d = document.getElementById('pevt-date-' + i);     if (d) ev.date = d.value;
+    var he = document.getElementById('pevt-heure-' + i);   if (he) ev.heure = he.value;
+    var vi = document.getElementById('pevt-visio-' + i);   if (vi) ev.visio = vi.value;
+    var dn = document.getElementById('pevt-done-' + i);    if (dn) ev.done = dn.checked;
     var l = document.getElementById('pevt-lieu-' + i);     if (l) ev.lieu = l.value;
     var pp = document.getElementById('pevt-part-' + i);    if (pp) ev.prevPartenaires = pp.value;
     if (!ev.tasks) ev.tasks = [];
@@ -9686,8 +10072,15 @@ function renderProjetEvtBlocks() {
       + '</div></div>';
     html += '<div class="form-field"><label>Date <small style="font-weight:400;color:var(--ink-mute)">(optionnelle)</small></label>'
       + '<input type="date" id="pevt-date-' + i + '" value="' + escapeHtml(ev.date||'') + '" onchange="syncProjetEvtBlocksFromDOM();renderProjetEvtBlocks();" /></div>';
+    html += '<div class="form-field"><label>Heure <small style="font-weight:400;color:var(--ink-mute)">(optionnelle)</small></label>'
+      + '<input type="time" id="pevt-heure-' + i + '" value="' + escapeHtml(ev.heure||'') + '" onchange="syncProjetEvtBlocksFromDOM();" /></div>';
+    html += '<div class="form-field" style="display:flex;align-items:flex-end;padding-bottom:8px">'
+      + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--ink-soft)">'
+      + '<input type="checkbox" id="pevt-done-' + i + '" ' + (ev.done ? 'checked' : '') + ' onchange="syncProjetEvtBlocksFromDOM();renderProjetEvtBlocks();" style="width:16px;height:16px;cursor:pointer;accent-color:var(--ok,#2c7a4b)" /> ✅ Réalisé</label></div>';
     html += '<div class="form-field row-full"><label>Lieu <small style="font-weight:400;color:var(--ink-mute)">(optionnel)</small></label>'
       + '<input type="text" id="pevt-lieu-' + i + '" value="' + escapeHtml(ev.lieu||'') + '" /></div>';
+    html += '<div class="form-field row-full"><label>📹 Lien visio <small style="font-weight:400;color:var(--ink-mute)">(Teams, Zoom, Meet…)</small></label>'
+      + '<input type="url" id="pevt-visio-' + i + '" value="' + escapeHtml(ev.visio||'') + '" placeholder="https://teams.microsoft.com/..." onblur="syncProjetEvtBlocksFromDOM();" /></div>';
     html += '</div>';
     // Animatrices
     html += '<div style="margin-top:8px"><label style="font-size:12px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:5px">Animatrices de l\'évènement</label><div style="display:flex;gap:8px;flex-wrap:wrap">';
@@ -9863,6 +10256,9 @@ function syncEvtBlocksFromDOM() {
     var t = document.getElementById('evt-titre-' + i);    if (t) ev.titre = t.value;
     var ty = document.getElementById('evt-type-' + i);    if (ty) ev.type = ty.value;
     var d = document.getElementById('evt-date-' + i);     if (d) ev.date = d.value;
+    var he = document.getElementById('evt-heure-' + i);   if (he) ev.heure = he.value;
+    var vi = document.getElementById('evt-visio-' + i);   if (vi) ev.visio = vi.value;
+    var dn = document.getElementById('evt-done-' + i);    if (dn) ev.done = dn.checked;
     var l = document.getElementById('evt-lieu-' + i);     if (l) ev.lieu = l.value;
     var pp = document.getElementById('evt-part-' + i);    if (pp) ev.prevPartenaires = pp.value;
     // Tâches organisationnelles de l'évènement
@@ -9927,12 +10323,20 @@ function renderEvtBlocks() {
       + '<button type="button" class="btn btn-sm" onclick="syncEvtBlocksFromDOM();addEvtType(' + i + ')" title="Ajouter un type">＋</button>'
       + '<button type="button" class="btn btn-sm" onclick="syncEvtBlocksFromDOM();deleteEvtType(' + i + ')" title="Supprimer le type" style="color:var(--danger)">🗑</button>'
       + '</div></div>';
-    // Date
+    // Date + heure + réalisé
     html += '<div class="form-field"><label>Date <small style="font-weight:400;color:var(--ink-mute)">(optionnelle)</small></label>'
       + '<input type="date" id="evt-date-' + i + '" value="' + escapeHtml(ev.date||'') + '" onchange="syncEvtBlocksFromDOM();renderEvtBlocks();" /></div>';
+    html += '<div class="form-field"><label>Heure <small style="font-weight:400;color:var(--ink-mute)">(optionnelle)</small></label>'
+      + '<input type="time" id="evt-heure-' + i + '" value="' + escapeHtml(ev.heure||'') + '" onchange="syncEvtBlocksFromDOM();" /></div>';
+    html += '<div class="form-field" style="display:flex;align-items:flex-end;padding-bottom:8px">'
+      + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--ink-soft)">'
+      + '<input type="checkbox" id="evt-done-' + i + '" ' + (ev.done ? 'checked' : '') + ' onchange="syncEvtBlocksFromDOM();renderEvtBlocks();" style="width:16px;height:16px;cursor:pointer;accent-color:var(--ok,#2c7a4b)" /> ✅ Réalisé</label></div>';
     // Lieu
     html += '<div class="form-field row-full"><label>Lieu <small style="font-weight:400;color:var(--ink-mute)">(optionnel)</small></label>'
       + '<input type="text" id="evt-lieu-' + i + '" value="' + escapeHtml(ev.lieu||'') + '" placeholder="Ex. Maison de santé, salle municipale…" /></div>';
+    // Lien visio
+    html += '<div class="form-field row-full"><label>📹 Lien visio <small style="font-weight:400;color:var(--ink-mute)">(Teams, Zoom, Meet…)</small></label>'
+      + '<input type="url" id="evt-visio-' + i + '" value="' + escapeHtml(ev.visio||'') + '" placeholder="https://teams.microsoft.com/..." onblur="syncEvtBlocksFromDOM();" /></div>';
     html += '</div>';
 
     // Animatrices
@@ -10420,6 +10824,7 @@ function openActionModal(id) {
       return {
         id: ev.id || makeId('evt'),
         titre: ev.titre || '', type: ev.type || '', date: ev.date || '', lieu: ev.lieu || '',
+        heure: ev.heure || '', visio: ev.visio || '', done: !!ev.done,
         animatrices: (ev.animatrices || []).slice(),
         journeePrev: !!ev.journeePrev, prevThemes: (ev.prevThemes || []).slice(),
         prevActionIds: (ev.prevActionIds || []).slice(),
@@ -10473,6 +10878,7 @@ function openActionModal(id) {
   // Toujours revenir sur l'onglet Descriptif à l'ouverture
   switchActionTab('descriptif');
 
+  makeDropZone('action-panel-planification', 'links-list', 'missions', appendLinkRow);
   modal.classList.add('show');
 }
 
@@ -10512,6 +10918,9 @@ function saveAction() {
       titre: (ev.titre||'').trim(),
       type: ev.type || '',
       date: ev.date || '',
+      heure: ev.heure || '',
+      visio: (ev.visio||'').trim(),
+      done: !!ev.done,
       lieu: (ev.lieu||'').trim(),
       animatrices: (ev.animatrices||[]).slice(),
       journeePrev: !!ev.journeePrev,
@@ -10543,19 +10952,7 @@ function saveAction() {
   // Agréger les réunions/tâches comme des tâches (pour l'avancement + Kanban/Agenda)
   var reunionsForTasks = exportReunionBlocks();
   reunionsForTasks.forEach(function(r) {
-    tasks.push({
-      id: r.id,
-      label: r.titre,
-      owner: (r.coords && r.coords.length === 1) ? r.coords[0] : ((r.coords && r.coords.length >= 2) ? 'Ensemble' : ''),
-      _coords: (r.coords||[]).slice(),
-      due: r.date || '',
-      note: r.note || '',
-      done: !!r.done,
-      doneAt: r.done ? (new Date().toISOString().slice(0,10)) : '',
-      subtasks: (r.subtasks||[]).slice(),
-      _isReunion: true,
-      createdAt: Date.now()
-    });
+    tasks.push(reunionToTask(r));
   });
 
   const links = [];
@@ -10563,7 +10960,7 @@ function saveAction() {
     const label = row.querySelector('.link-label').value.trim();
     const url = row.querySelector('.link-url').value.trim();
     if (!label && !url) return;
-    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url });
+    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url, fileId: row.dataset.fileId || '' });
   });
 
   // Attribution depuis le modal
@@ -10680,15 +11077,82 @@ function appendLinkRow(lk) {
   const div = document.createElement('div');
   div.className = 'link-row';
   div.dataset.linkId = lk ? lk.id : makeId('lnk');
+  if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+  var dlBtn = (lk && lk.fileId)
+    ? '<button type="button" class="btn btn-sm" title="Télécharger le fichier" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\')" style="padding:4px 8px">⬇️</button>'
+    : '';
   div.innerHTML = `
     <input class="link-label" type="text" value="${escapeHtml(lk?lk.label:'')}" placeholder="Nom du document…"
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
     <input class="link-url" type="text" value="${escapeHtml(lk?lk.url:'')}" placeholder="Lien Drive ou URL (https://…)"
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
+    ${dlBtn}
     <button type="button" class="btn btn-sm btn-danger-text" onclick="this.parentElement.remove()">×</button>
   `;
   document.getElementById('links-list').appendChild(div);
+}
+
+/* ============================================================
+   ZONE DE DÉPÔT DE FICHIERS (drag & drop → upload SharePoint)
+   Réutilisable pour les 3 modals (ACI, projet, évènement)
+   ============================================================ */
+
+// Crée une zone de drop au-dessus d'une liste de liens.
+// listId : id de la liste (ex. 'links-list'), subfolder : sous-dossier SharePoint,
+// appendFn : fonction (lk) => void qui ajoute une ligne de lien
+function makeDropZone(containerId, listId, subfolder, appendFn) {
+  var container = document.getElementById(containerId);
+  if (!container) return;
+  if (container.querySelector('.sp-dropzone')) return; // déjà créée
+  var dz = document.createElement('div');
+  dz.className = 'sp-dropzone';
+  dz.style.cssText = 'border:2px dashed var(--line);border-radius:8px;padding:14px;text-align:center;'
+    + 'font-size:12px;color:var(--ink-mute);cursor:pointer;margin-bottom:8px;transition:all .15s;background:var(--bg-soft)';
+  dz.innerHTML = '📎 Glissez un document ici, ou <span style="color:var(--teal-d);font-weight:600;text-decoration:underline">cliquez pour parcourir</span>'
+    + '<div style="font-size:10.5px;margin-top:3px;color:var(--ink-light)">Stocké dans SharePoint · téléchargeable ensuite</div>';
+  var input = document.createElement('input');
+  input.type = 'file'; input.multiple = true; input.style.display = 'none';
+  dz.appendChild(input);
+
+  function handleFiles(files) {
+    if (!files || !files.length) return;
+    if (!spUploadAvailable()) {
+      toast('⚠️ Connectez-vous à SharePoint (bouton ☁️) pour déposer des fichiers');
+      return;
+    }
+    Array.prototype.forEach.call(files, function(file) {
+      var status = document.createElement('div');
+      status.style.cssText = 'font-size:11px;color:var(--teal-d);margin:4px 0';
+      status.textContent = '⏳ Envoi de « ' + file.name +' » … 0%';
+      container.insertBefore(status, document.getElementById(listId));
+      spUploadFile(file, subfolder, function(pct){
+        status.textContent = '⏳ Envoi de « ' + file.name + ' » … ' + pct + '%';
+      }).then(function(res){
+        status.remove();
+        appendFn({ id: makeId('lnk'), label: res.name, url: res.webUrl, fileId: res.id });
+        toast('✅ « ' + res.name + ' » ajouté');
+        if (typeof saveState === 'function') { /* la sauvegarde se fait à l'enregistrement de la fiche */ }
+      }).catch(function(e){
+        console.error('upload', e);
+        status.style.color = 'var(--danger)';
+        status.textContent = '⚠️ Échec de l\'envoi de « ' + file.name + ' »';
+        setTimeout(function(){ status.remove(); }, 4000);
+      });
+    });
+  }
+
+  dz.addEventListener('click', function(e){ if (e.target !== input) input.click(); });
+  input.addEventListener('change', function(){ handleFiles(input.files); input.value=''; });
+  dz.addEventListener('dragover', function(e){ e.preventDefault(); dz.style.borderColor='var(--teal)'; dz.style.background='var(--teal-p)'; });
+  dz.addEventListener('dragleave', function(){ dz.style.borderColor='var(--line)'; dz.style.background='var(--bg-soft)'; });
+  dz.addEventListener('drop', function(e){
+    e.preventDefault();
+    dz.style.borderColor='var(--line)'; dz.style.background='var(--bg-soft)';
+    handleFiles(e.dataTransfer.files);
+  });
+
+  container.insertBefore(dz, document.getElementById(listId));
 }
 
 function addLink() { appendLinkRow(null); }
