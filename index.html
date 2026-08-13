@@ -146,13 +146,7 @@ a:hover { text-decoration: underline; }
   top: 0;
   z-index: 50;
   box-shadow: var(--shadow-sm);
-  flex-shrink: 0;
 }
-/* Layout en colonne : header en haut, footer poussé en bas, contenu au milieu.
-   Empêche le footer/header de flotter au milieu quand une page est courte. */
-body { display: flex; flex-direction: column; min-height: 100vh; }
-.app-main { flex: 1 0 auto; }
-.app-footer { flex-shrink: 0; }
 
 .save-bar {
   background: var(--ink);
