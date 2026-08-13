@@ -4079,7 +4079,9 @@ function parseFloatLoose(s) {
 /* === Calcul du taux d'atteinte === */
 // Calcule le statut automatique d'une action selon ses évènements de planification.
 // Règles : aucun évènement → a_lancer ; au moins un évènement mais pas tous passés → en_cours ;
-// tous les évènements passés → realise ; 1 mois après le dernier évènement passé → archive.
+// tous les évènements passés → realise.
+// NB : une mission/action ne s'archive JAMAIS automatiquement — seul le statut manuel
+// (choisi dans l'onglet Missions) peut la passer en "Archivé".
 function computeAutoStatut(action) {
   var plan = action.planif;
   var evts = (plan && plan.evenements) ? plan.evenements : [];
@@ -4092,11 +4094,7 @@ function computeAutoStatut(action) {
   var allPassed = dated.every(function(e){ return e.date <= todayStr; });
   if (!allPassed) return 'en_cours';
 
-  // Tous les évènements datés sont passés → Réalisé, ou Archivé si le dernier date de +1 mois
-  var lastDate = dated.reduce(function(max, e){ return e.date > max ? e.date : max; }, '0000-00-00');
-  var lastD = parseLocal(lastDate);
-  var monthAfter = new Date(lastD.getFullYear(), lastD.getMonth()+1, lastD.getDate());
-  if (new Date() >= monthAfter) return 'archive';
+  // Tous les évènements datés sont passés → Réalisé (jamais d'archivage automatique)
   return 'realise';
 }
 
@@ -5631,6 +5629,14 @@ function renderPlanning() {
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span style="font-size:11.5px;font-weight:600;color:var(--ink-mute)">Attribué à :</span>
         ${kanbanFilterChipsHTML()}
+        <button onclick="toggleShowArchivedTasks()"
+          style="padding:4px 11px;border-radius:14px;border:1px dashed var(--ink-light);
+                 background:${_showArchivedTasks ? 'var(--ink-soft)' : 'transparent'};
+                 color:${_showArchivedTasks ? 'white' : 'var(--ink-mute)'};
+                 font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap"
+          title="Les tâches réalisées depuis plus d'un mois sont archivées automatiquement">
+          ${_showArchivedTasks ? '✓ Tâches archivées affichées' : '🗄 Afficher les tâches archivées'}
+        </button>
       </div>
       ` : ''}
       <div style="display:flex;gap:4px">
@@ -5690,6 +5696,26 @@ function setKanbanFilter(val) {
   renderPlanningInner();
 }
 
+// Une tâche est "archivée" (affichage Planning uniquement) si elle est réalisée
+// depuis plus d'un mois (basé sur sa date de réalisation doneAt).
+// N'affecte JAMAIS le statut de la mission.
+function isTaskArchived(task) {
+  if (!task || !task.done) return false;
+  var doneAt = task.doneAt;
+  if (!doneAt) return false;
+  var d = parseLocal(doneAt);
+  if (!d || isNaN(d.getTime())) return false;
+  var monthAfter = new Date(d.getFullYear(), d.getMonth()+1, d.getDate());
+  return new Date() >= monthAfter;
+}
+
+// Affichage des tâches archivées dans le Planning (masquées par défaut)
+var _showArchivedTasks = false;
+function toggleShowArchivedTasks() {
+  _showArchivedTasks = !_showArchivedTasks;
+  renderPlanningInner();
+}
+
 function renderKanbanHTML() {
   const cols = [
     { id: 'a_lancer', label: 'À lancer',  color: 'var(--ink-light)' },
@@ -5713,6 +5739,8 @@ function renderKanbanHTML() {
     (a.tasks||[]).forEach(function(t) {
       // Statut stocké sur la tâche, sinon calculé
       var s = t.kanbanStatut || (t.done ? 'realise' : (t.due && t.due < new Date().toISOString().slice(0,10) ? 'en_cours' : 'a_lancer'));
+      // Tâche réalisée depuis +1 mois → colonne Archivé (affichage Planning uniquement)
+      if (isTaskArchived(t)) s = 'archive';
       var stDone = (t.subtasks||[]).filter(function(st){return st.done;}).length;
       var stTotal = (t.subtasks||[]).length;
       taskCards.push({
@@ -5736,6 +5764,7 @@ function renderKanbanHTML() {
     if (p.statut === 'archive') return;
     (p.tasks||[]).forEach(function(t) {
       var s = t.kanbanStatut || (t.done ? 'realise' : (t.due && t.due < new Date().toISOString().slice(0,10) ? 'en_cours' : 'a_lancer'));
+      if (isTaskArchived(t)) s = 'archive';
       horsAciCards.push({
         id: 'horsaci_p_' + p.id + '_' + t.id,
         titre: t.label,
@@ -5756,6 +5785,7 @@ function renderKanbanHTML() {
     if (e.statut === 'archive') return;
     (e.tasks||[]).forEach(function(t) {
       var s = t.kanbanStatut || (t.done ? 'realise' : (t.due && t.due < new Date().toISOString().slice(0,10) ? 'en_cours' : 'a_lancer'));
+      if (isTaskArchived(t)) s = 'archive';
       horsAciCards.push({
         id: 'horsaci_e_' + e.id + '_' + t.id,
         titre: t.label,
@@ -5775,6 +5805,7 @@ function renderKanbanHTML() {
   (state.orga_interne||[]).forEach(function(cat) {
     (cat.tasks||[]).forEach(function(t) {
       var s = t.kanbanStatut || (t.done ? 'realise' : (t.due && t.due < new Date().toISOString().slice(0,10) ? 'en_cours' : 'a_lancer'));
+      if (isTaskArchived(t)) s = 'archive';
       horsAciCards.push({
         id: 'horsaci_o_' + cat.id + '_' + t.id,
         titre: t.label,
@@ -5929,8 +5960,17 @@ function renderKanbanHTML() {
     `;
   }
 
-  var html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start">';
-  cols.forEach(function(col) {
+  // Masquer les tâches archivées par défaut (sauf si l'option est activée)
+  if (!_showArchivedTasks) {
+    allCards = allCards.filter(function(a) { return a.statut !== 'archive'; });
+  }
+
+  // Colonnes affichées : la colonne "Archivé" n'apparaît que si l'option est activée
+  var visibleCols = _showArchivedTasks ? cols : cols.filter(function(c){ return c.id !== 'archive'; });
+  var nbCols = visibleCols.length;
+
+  var html = '<div style="display:grid;grid-template-columns:repeat(' + nbCols + ',1fr);gap:14px;align-items:start">';
+  visibleCols.forEach(function(col) {
     var colActs = allCards.filter(function(a) { return a.statut === col.id; });
     html += `
       <div class="kanban-col" data-col="${col.id}"
@@ -6101,6 +6141,8 @@ function renderAgendaHTML() {
     state.actions.forEach(function(a) {
       if (a.echeance && a.statut !== 'archive') add(a.echeance, a);
       (a.tasks||[]).forEach(function(t) {
+        // Tâche archivée (réalisée depuis +1 mois) → masquée sauf si l'option est activée
+        if (isTaskArchived(t) && !_showArchivedTasks) return;
         if (t.due) add(t.due, Object.assign({}, a, {
           _isTask: true,
           _taskLabel: t.label,
@@ -6128,6 +6170,7 @@ function renderAgendaHTML() {
       if (p.statut === 'archive') return;
       if (p.fin) add(p.fin, { id:p.id, titre:'🚀 '+p.titre, _isHorsACI:true, _horsAciType:'projet', _horsAciParentId:p.id, echeance:p.fin, statut:p.statut||'a_lancer', owner:p.responsable||'' });
       (p.tasks||[]).forEach(function(t) {
+        if (isTaskArchived(t) && !_showArchivedTasks) return;
         if (t.due) add(t.due, { id:'pt_'+t.id, titre:'🚀 '+t.label, _isHorsACI:true, _horsAciType:'projet', _horsAciParentId:p.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:p.titre, _taskCoords:(t._coords||[]).slice(), _taskDone:!!t.done, _heure:t.heure||'', _visio:t.visio||'' });
       });
     });
@@ -6136,12 +6179,14 @@ function renderAgendaHTML() {
       if (e.statut === 'archive') return;
       if (e.date) add(e.date, { id:e.id, titre:'🎉 '+(e.titre||e.nom||'Évènement'), _isHorsACI:true, _horsAciType:'evenement', _horsAciParentId:e.id, echeance:e.date, statut:e.statut||'a_lancer', owner:'Ensemble', _evtDone:!!e.done, _heure:e.heure||'', _visio:e.visio||'' });
       (e.tasks||[]).forEach(function(t) {
+        if (isTaskArchived(t) && !_showArchivedTasks) return;
         if (t.due) add(t.due, { id:'et_'+t.id, titre:'🎉 '+t.label, _isHorsACI:true, _horsAciType:'evenement', _horsAciParentId:e.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:e.titre||e.nom||'', _taskCoords:(t._coords||[]).slice(), _taskDone:!!t.done, _heure:t.heure||'', _visio:t.visio||'' });
       });
     });
     // Hors ACI : gestion interne (tâches avec échéance)
     (state.orga_interne||[]).forEach(function(cat) {
       (cat.tasks||[]).forEach(function(t) {
+        if (isTaskArchived(t) && !_showArchivedTasks) return;
         if (t.due) add(t.due, { id:'ot_'+t.id, titre:'🏢 '+t.label, _isHorsACI:true, _horsAciType:'orga', _horsAciParentId:cat.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:cat.label, _taskDone:!!t.done });
       });
     });
@@ -6440,7 +6485,15 @@ function renderAgendaHTML() {
       +'outline:' + (isActive ? '2px solid var(--ink)' : 'none') + ';outline-offset:2px">' + f.label + '</button>';
   });
   html += '</div>';
-  html += '<div style="margin-left:auto;font-size:11px;color:var(--ink-mute)">Cliquer sur une date → voir les tâches du jour</div>';
+  html += '<button onclick="toggleShowArchivedTasks()" '
+    + 'style="margin-left:auto;padding:4px 11px;border-radius:14px;border:1px dashed var(--ink-light);'
+    + 'background:' + (_showArchivedTasks ? 'var(--ink-soft)' : 'transparent') + ';'
+    + 'color:' + (_showArchivedTasks ? 'white' : 'var(--ink-mute)') + ';'
+    + 'font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap" '
+    + 'title="Les tâches réalisées depuis plus d\'un mois sont archivées automatiquement">'
+    + (_showArchivedTasks ? '✓ Tâches archivées affichées' : '🗄 Afficher les tâches archivées')
+    + '</button>';
+  html += '<div style="font-size:11px;color:var(--ink-mute)">Cliquer sur une date → voir les tâches du jour</div>';
   html += '</div>';
 
   // Légende couleurs
@@ -6550,23 +6603,27 @@ function openDayPanel(dateStr) {
     if (a.statut === 'archive') return;
     if (a.echeance === dateStr) allItems.push({ label: a.titre, owner: '', type: 'aci', id: a.id });
     (a.tasks||[]).forEach(function(t) {
+      if (isTaskArchived(t) && !_showArchivedTasks) return;
       if (t.due === dateStr) allItems.push({ label: t.label, owner: (t._coords && t._coords.length === 2) ? t._coords.join(' + ') : (t.owner||''), type: 'task', actionId: a.id, taskId: t.id, note: t.note||'', done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
     });
   });
   (state.projets||[]).forEach(function(p) {
     if (p.fin === dateStr) allItems.push({ label: '🚀 '+p.titre, owner: p.responsable||'', type: 'horsaci', horsAciType:'projet', parentId:p.id });
     (p.tasks||[]).forEach(function(t) {
+      if (isTaskArchived(t) && !_showArchivedTasks) return;
       if (t.due === dateStr) allItems.push({ label: '🚀 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'projet', parentId:p.id, taskId:t.id, done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
     });
   });
   (state.evenements||[]).forEach(function(e) {
     if (e.date === dateStr) allItems.push({ label: '🎉 '+(e.titre||e.nom||'Évènement'), owner: 'Ensemble', type: 'horsaci', horsAciType:'evenement', parentId:e.id, done: !!e.done, heure: e.heure||'', visio: e.visio||'' });
     (e.tasks||[]).forEach(function(t) {
+      if (isTaskArchived(t) && !_showArchivedTasks) return;
       if (t.due === dateStr) allItems.push({ label: '🎉 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'evenement', parentId:e.id, taskId:t.id, done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
     });
   });
   (state.orga_interne||[]).forEach(function(cat) {
     (cat.tasks||[]).forEach(function(t) {
+      if (isTaskArchived(t) && !_showArchivedTasks) return;
       if (t.due === dateStr) allItems.push({ label: '🏢 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'orga', parentId:cat.id, taskId:t.id, done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
     });
   });
