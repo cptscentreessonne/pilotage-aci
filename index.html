@@ -4702,6 +4702,9 @@ function attributionBadgesHTML(a) {
   return html;
 }
 
+// Filtres persistants de l'onglet Missions (conservés entre les re-rendus de synchro)
+var _missionFilters = { search: '', mission: '', theme: '', statut: '', type: '' };
+
 function renderMissions() {
   const el = document.getElementById('view-missions');
   const allThemes = [...new Set(state.actions.map(a => a.theme).filter(Boolean))].sort();
@@ -4711,11 +4714,12 @@ function renderMissions() {
       <h2 class="section-title" style="margin:0">Missions & actions ACI</h2>
       <div class="spacer"></div>
       <input type="text" id="filter-search" placeholder="🔍 Rechercher par mot-clé…"
+        value="${escapeHtml(_missionFilters.search)}"
         oninput="renderMissionsContent()"
         style="padding:6px 12px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;min-width:200px;background:var(--surface)" />
       <select id="filter-mission" class="form-field" style="padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;min-width:200px" onchange="renderMissionsContent()">
         <option value="">— Toutes les missions —</option>
-        ${MISSIONS.map(m => `<option value="${m.id}">${escapeHtml(m.label)}</option>`).join('')}
+        ${MISSIONS.map(m => `<option value="${m.id}"${_missionFilters.mission===m.id?' selected':''}>${escapeHtml(m.label)}</option>`).join('')}
       </select>
 
       <!-- Filtre thème avec recherche intégrée -->
@@ -4725,7 +4729,7 @@ function renderMissions() {
             style="flex:1;padding:6px 10px;border:none;font-size:12.5px;background:transparent;cursor:pointer;outline:none"
             onchange="renderMissionsContent()">
             <option value="">— Tous les thèmes —</option>
-            ${allThemes.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('')}
+            ${allThemes.map(t => `<option value="${escapeHtml(t)}"${_missionFilters.theme===t?' selected':''}>${escapeHtml(t)}</option>`).join('')}
           </select>
         </div>
         <div style="margin-top:4px">
@@ -4737,15 +4741,15 @@ function renderMissions() {
 
       <select id="filter-statut" style="padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px" onchange="renderMissionsContent()">
         <option value="">Tous statuts</option>
-        <option value="a_lancer">À lancer</option>
-        <option value="en_cours">En cours</option>
-        <option value="realise">Réalisé</option>
-        <option value="archive">Archivé</option>
+        <option value="a_lancer"${_missionFilters.statut==='a_lancer'?' selected':''}>À lancer</option>
+        <option value="en_cours"${_missionFilters.statut==='en_cours'?' selected':''}>En cours</option>
+        <option value="realise"${_missionFilters.statut==='realise'?' selected':''}>Réalisé</option>
+        <option value="archive"${_missionFilters.statut==='archive'?' selected':''}>Archivé</option>
       </select>
       <select id="filter-type" style="padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px" onchange="renderMissionsContent()">
         <option value="">Tous types</option>
-        <option value="resultat">Résultat</option>
-        <option value="suivi">Suivi</option>
+        <option value="resultat"${_missionFilters.type==='resultat'?' selected':''}>Résultat</option>
+        <option value="suivi"${_missionFilters.type==='suivi'?' selected':''}>Suivi</option>
       </select>
       <button class="btn btn-primary" onclick="openActionModal()">＋ Nouvelle action</button>
     </div>
@@ -4775,6 +4779,12 @@ function renderMissionsContent() {
   const filterT = document.getElementById('filter-type') ? document.getElementById('filter-type').value : '';
   const filterQ = (document.getElementById('filter-search') ? document.getElementById('filter-search').value.toLowerCase().trim() : '');
   const filterTh = (document.getElementById('filter-theme') ? document.getElementById('filter-theme').value : '');
+  // Mémoriser les filtres pour qu'ils survivent aux re-rendus (synchro auto)
+  _missionFilters.search  = document.getElementById('filter-search') ? document.getElementById('filter-search').value : '';
+  _missionFilters.mission = filterM;
+  _missionFilters.theme   = filterTh;
+  _missionFilters.statut  = filterS;
+  _missionFilters.type    = filterT;
   const el = document.getElementById('missions-content');
 
   // Si un thème est sélectionné : affichage par thème (toutes missions)
@@ -6423,9 +6433,11 @@ function renderAgendaHTML() {
   ];
   filterAttrs.forEach(function(f) {
     var fid = f.val === '__urgences__' ? 'urgences' : f.val === '__ensemble__' ? 'ensemble' : (f.val||'all');
+    var isActive = (_agendaFilter || '') === (f.val || '');
     html += '<button onclick="setAgendaFilter(\'' + f.val + '\')" id="agenda-filter-' + fid + '" '
       +'style="padding:4px 11px;border-radius:14px;border:2px solid ' + f.bg + ';background:' + f.bg + ';'
-      +'color:' + f.text + ';font-size:11.5px;font-weight:600;cursor:pointer">' + f.label + '</button>';
+      +'color:' + f.text + ';font-size:11.5px;font-weight:600;cursor:pointer;'
+      +'outline:' + (isActive ? '2px solid var(--ink)' : 'none') + ';outline-offset:2px">' + f.label + '</button>';
   });
   html += '</div>';
   html += '<div style="margin-left:auto;font-size:11px;color:var(--ink-mute)">Cliquer sur une date → voir les tâches du jour</div>';
