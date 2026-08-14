@@ -3307,6 +3307,36 @@ const SP_SCOPES = [
   'User.Read'
 ];
 
+/* ============================================================
+   ONEDRIVE FILE PICKER v8 (Solution A)
+   Ouvre le sélecteur de fichiers OneDrive/SharePoint en ligne.
+   La personne navigue dans ses dossiers et choisit un fichier,
+   qui est ensuite référencé (et éventuellement copié) dans l'outil.
+   Domaine OneDrive personnel : {tenant}-my.sharepoint.com
+   ============================================================ */
+const ONEDRIVE_PICKER = {
+  // Domaine de base du OneDrive de l'organisation (espaces personnels "-my")
+  baseUrl: 'https://cptscentreessonne-my.sharepoint.com',
+  // Scope nécessaire pour le picker sur le domaine -my
+  scopes: ['https://cptscentreessonne-my.sharepoint.com/.default']
+};
+
+// Récupère un jeton d'accès pour le domaine OneDrive -my (distinct du jeton Graph)
+async function odGetPickerToken() {
+  if (!_msalInstance) throw new Error('MSAL non initialisé');
+  var accounts = _msalInstance.getAllAccounts();
+  if (!accounts.length) throw new Error('Non connecté');
+  var req = { scopes: ONEDRIVE_PICKER.scopes, account: accounts[0] };
+  try {
+    var res = await _msalInstance.acquireTokenSilent(req);
+    return res.accessToken;
+  } catch(e) {
+    var res2 = await _msalInstance.acquireTokenPopup(req);
+    return res2.accessToken;
+  }
+}
+
+
 // Instance MSAL
 var _msalInstance = null;
 var _spToken = null;
@@ -3550,6 +3580,135 @@ async function spDownloadFileById(fileId, fileName) {
     toast('⚠️ Téléchargement impossible');
   }
 }
+
+// Aperçu d'un document : ouvre le fichier dans la visionneuse en ligne (SharePoint/OneDrive),
+// sans le télécharger. Utilise en priorité le webUrl du fichier ; à défaut, récupère un lien.
+async function spPreviewFile(fileId, webUrl) {
+  // Si on dispose déjà du lien web (visionneuse Office/PDF en ligne), on l'ouvre directement
+  if (webUrl) { window.open(webUrl, '_blank', 'noopener'); return; }
+  if (!spUploadAvailable()) { toast('⚠️ Connectez-vous à SharePoint pour l\'aperçu'); return; }
+  try {
+    var driveId = await spGetDriveId();
+    // Récupérer le webUrl du fichier via ses métadonnées
+    var meta = await spGraphCall('GET', '/drives/' + driveId + '/items/' + fileId);
+    if (meta && meta.webUrl) { window.open(meta.webUrl, '_blank', 'noopener'); return; }
+    toast('⚠️ Aperçu indisponible pour ce fichier');
+  } catch(e) {
+    console.error('spPreviewFile', e);
+    toast('⚠️ Aperçu impossible');
+  }
+}
+
+/* ============================================================
+   Ouvre le OneDrive File Picker v8. Sur sélection, appelle
+   onPick({ name, webUrl, id, driveId }) pour chaque fichier choisi.
+   ============================================================ */
+var _odPickerWin = null;
+var _odPickerPort = null;
+async function openOneDrivePicker(onPick) {
+  if (!_spEnabled || !_msalInstance) {
+    toast('⚠️ Connectez-vous d\'abord à SharePoint (bouton ☁️)');
+    return;
+  }
+  var pickerToken;
+  try {
+    pickerToken = await odGetPickerToken();
+  } catch(e) {
+    console.error('odGetPickerToken', e);
+    toast('⚠️ Autorisation OneDrive requise — voir la configuration Azure');
+    return;
+  }
+
+  // Paramètres du picker (v8)
+  var params = {
+    sdk: '8.0',
+    entry: { oneDrive: {} },
+    authentication: {},
+    messaging: { origin: window.location.origin, channelId: '27' },
+    selection: { mode: 'single' },
+    typesAndSources: { mode: 'files', pivots: { oneDrive: true, recent: true } }
+  };
+
+  var queryString = new URLSearchParams({ filePicker: JSON.stringify(params) });
+  var url = ONEDRIVE_PICKER.baseUrl + '/_layouts/15/FilePicker.aspx?' + queryString;
+
+  // Ouvrir la fenêtre popup
+  _odPickerWin = window.open('', 'OneDrivePicker', 'width=1080,height=680');
+  if (!_odPickerWin) { toast('⚠️ Autorisez les fenêtres popup pour ce site'); return; }
+
+  // Formulaire POST avec le jeton (le picker exige un POST authentifié)
+  var form = _odPickerWin.document.createElement('form');
+  form.setAttribute('action', url);
+  form.setAttribute('method', 'POST');
+  var input = _odPickerWin.document.createElement('input');
+  input.setAttribute('type', 'hidden');
+  input.setAttribute('name', 'access_token');
+  input.setAttribute('value', pickerToken);
+  form.appendChild(input);
+  _odPickerWin.document.body.appendChild(form);
+  form.submit();
+
+  // Écoute des messages du picker
+  function handleMessage(event) {
+    if (event.source !== _odPickerWin) return;
+    var message = event.data;
+    if (!message || message.type !== 'initialize' && !message.data) {
+      // Canal d'init
+    }
+    if (message.type === 'initialize' && message.channelId === params.messaging.channelId) {
+      _odPickerPort = event.ports[0];
+      _odPickerPort.addEventListener('message', handlePortMessage);
+      _odPickerPort.start();
+      _odPickerPort.postMessage({ type: 'activate' });
+    }
+  }
+
+  async function handlePortMessage(portEvent) {
+    var payload = portEvent.data;
+    if (!payload) return;
+    switch (payload.type) {
+      case 'notification':
+        break;
+      case 'command': {
+        _odPickerPort.postMessage({ type: 'acknowledge', id: payload.id });
+        var command = payload.data;
+        if (command.command === 'authenticate') {
+          // Le picker redemande un jeton (pour le drive ciblé)
+          try {
+            var t = await odGetPickerToken();
+            _odPickerPort.postMessage({ type: 'result', id: payload.id, data: { result: 'token', token: t } });
+          } catch(e) {
+            _odPickerPort.postMessage({ type: 'result', id: payload.id, data: { result: 'error', error: { code: 'unableToObtainToken', message: String(e) } } });
+          }
+        } else if (command.command === 'close') {
+          if (_odPickerWin) _odPickerWin.close();
+          window.removeEventListener('message', handleMessage);
+        } else if (command.command === 'pick') {
+          // L'utilisatrice a choisi un ou plusieurs fichiers
+          _odPickerPort.postMessage({ type: 'result', id: payload.id, data: { result: 'success' } });
+          var items = command.items || [];
+          items.forEach(function(it){
+            onPick({
+              name: it.name,
+              webUrl: (it.webUrl || (it.sharepointIds && it.sharepointIds.siteUrl) || ''),
+              id: it.id,
+              driveId: (it.parentReference && it.parentReference.driveId) || ''
+            });
+          });
+          if (_odPickerWin) _odPickerWin.close();
+          window.removeEventListener('message', handleMessage);
+          toast('✅ Document ajouté depuis OneDrive');
+        } else {
+          _odPickerPort.postMessage({ type: 'result', id: payload.id, data: { result: 'error', error: { code: 'unsupportedCommand', message: command.command } } });
+        }
+        break;
+      }
+    }
+  }
+
+  window.addEventListener('message', handleMessage);
+}
+
 
 
 // Sauvegarder le JSON principal sur SharePoint
@@ -8079,6 +8238,9 @@ function appendProjetLinkRow(lk) {
   div.dataset.linkId = lk ? lk.id : makeId('lnk');
   if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+  var pvBtn = (lk && (lk.fileId || lk.url))
+    ? '<button type="button" class="btn btn-sm" title="Aperçu (ouvrir sans télécharger)" onclick="spPreviewFile(\'' + (lk.fileId||'') + '\',\'' + escapeHtml((lk.url||'').replace(/\'/g,'')) + '\')" style="padding:4px 8px">👁</button>'
+    : '';
   var dlBtn = (lk && lk.fileId)
     ? '<button type="button" class="btn btn-sm" title="Télécharger" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\')" style="padding:4px 8px">⬇️</button>'
     : '';
@@ -8087,6 +8249,7 @@ function appendProjetLinkRow(lk) {
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
     <input class="plnk-url" type="text" value="${escapeHtml(lk?lk.url:'')}" placeholder="Lien Drive ou URL (https://…)"
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
+    ${pvBtn}
     ${dlBtn}
     <button type="button" class="btn btn-sm btn-danger-text" onclick="this.parentElement.remove()">×</button>
   `;
@@ -8377,6 +8540,9 @@ function appendEvenementLinkRow(lk) {
   div.dataset.linkId = lk ? lk.id : makeId('lnk');
   if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+  var pvBtn = (lk && (lk.fileId || lk.url))
+    ? '<button type="button" class="btn btn-sm" title="Aperçu (ouvrir sans télécharger)" onclick="spPreviewFile(\'' + (lk.fileId||'') + '\',\'' + escapeHtml((lk.url||'').replace(/\'/g,'')) + '\')" style="padding:4px 8px">👁</button>'
+    : '';
   var dlBtn = (lk && lk.fileId)
     ? '<button type="button" class="btn btn-sm" title="Télécharger" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\')" style="padding:4px 8px">⬇️</button>'
     : '';
@@ -8385,6 +8551,7 @@ function appendEvenementLinkRow(lk) {
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
     <input class="elnk-url" type="text" value="${escapeHtml(lk?lk.url:'')}" placeholder="Lien Drive ou URL (https://…)"
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
+    ${pvBtn}
     ${dlBtn}
     <button type="button" class="btn btn-sm btn-danger-text" onclick="this.parentElement.remove()">×</button>
   `;
@@ -11406,6 +11573,9 @@ function appendLinkRow(lk) {
   div.dataset.linkId = lk ? lk.id : makeId('lnk');
   if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+  var pvBtn = (lk && (lk.fileId || lk.url))
+    ? '<button type="button" class="btn btn-sm" title="Aperçu (ouvrir sans télécharger)" onclick="spPreviewFile(\'' + (lk.fileId||'') + '\',\'' + escapeHtml((lk.url||'').replace(/\'/g,'')) + '\')" style="padding:4px 8px">👁</button>'
+    : '';
   var dlBtn = (lk && lk.fileId)
     ? '<button type="button" class="btn btn-sm" title="Télécharger le fichier" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\')" style="padding:4px 8px">⬇️</button>'
     : '';
@@ -11414,6 +11584,7 @@ function appendLinkRow(lk) {
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
     <input class="link-url" type="text" value="${escapeHtml(lk?lk.url:'')}" placeholder="Lien Drive ou URL (https://…)"
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
+    ${pvBtn}
     ${dlBtn}
     <button type="button" class="btn btn-sm btn-danger-text" onclick="this.parentElement.remove()">×</button>
   `;
@@ -11454,6 +11625,21 @@ function makeDropZone(containerId, listId, subfolder, appendFn) {
   odLink.title = 'Ouvre le dossier OneDrive partagé dans un nouvel onglet — pour récupérer un document déjà classé';
   odLink.addEventListener('click', function(e){ e.stopPropagation(); });
 
+  // Bouton "Choisir depuis OneDrive" : ouvre le sélecteur de fichiers OneDrive intégré (Solution A)
+  var odPickBtn = document.createElement('button');
+  odPickBtn.type = 'button';
+  odPickBtn.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;margin-left:8px;padding:6px 12px;'
+    + 'border:1px solid var(--teal);border-radius:7px;background:var(--teal-p);'
+    + 'font-size:11.5px;font-weight:600;color:var(--teal-d);cursor:pointer';
+  odPickBtn.innerHTML = '☁️ Choisir un fichier depuis OneDrive';
+  odPickBtn.title = 'Ouvre le sélecteur OneDrive : naviguez dans vos dossiers et cliquez sur un fichier pour l\'ajouter directement';
+  odPickBtn.addEventListener('click', function(e){
+    e.stopPropagation();
+    openOneDrivePicker(function(picked){
+      appendFn({ id: makeId('lnk'), label: picked.name, url: picked.webUrl, fileId: picked.id });
+    });
+  });
+
   function handleFiles(files) {
     if (!files || !files.length) return;
     if (!spUploadAvailable()) {
@@ -11492,7 +11678,8 @@ function makeDropZone(containerId, listId, subfolder, appendFn) {
   });
 
   container.insertBefore(dz, document.getElementById(listId));
-  container.insertBefore(odLink, dz);
+  container.insertBefore(odPickBtn, dz);
+  container.insertBefore(odLink, odPickBtn);
 }
 
 function addLink() { appendLinkRow(null); }
