@@ -11613,22 +11613,10 @@ function makeDropZone(containerId, listId, subfolder, appendFn) {
   input.type = 'file'; input.multiple = true; input.style.display = 'none';
   dz.appendChild(input);
 
-  // Lien d'accès rapide vers le dossier OneDrive de l'équipe (ouvre l'espace en ligne)
-  var odLink = document.createElement('a');
-  odLink.href = ONEDRIVE_DOCS_URL;
-  odLink.target = '_blank';
-  odLink.rel = 'noopener';
-  odLink.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;padding:6px 12px;'
-    + 'border:1px solid var(--line);border-radius:7px;background:var(--surface);text-decoration:none;'
-    + 'font-size:11.5px;font-weight:600;color:var(--teal-d);cursor:pointer';
-  odLink.innerHTML = '📂 Ouvrir notre dossier OneDrive (documents ACI)';
-  odLink.title = 'Ouvre le dossier OneDrive partagé dans un nouvel onglet — pour récupérer un document déjà classé';
-  odLink.addEventListener('click', function(e){ e.stopPropagation(); });
-
   // Bouton "Choisir depuis OneDrive" : ouvre le sélecteur de fichiers OneDrive intégré (Solution A)
   var odPickBtn = document.createElement('button');
   odPickBtn.type = 'button';
-  odPickBtn.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;margin-left:8px;padding:6px 12px;'
+  odPickBtn.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;padding:6px 12px;'
     + 'border:1px solid var(--teal);border-radius:7px;background:var(--teal-p);'
     + 'font-size:11.5px;font-weight:600;color:var(--teal-d);cursor:pointer';
   odPickBtn.innerHTML = '☁️ Choisir un fichier depuis OneDrive';
@@ -11679,7 +11667,6 @@ function makeDropZone(containerId, listId, subfolder, appendFn) {
 
   container.insertBefore(dz, document.getElementById(listId));
   container.insertBefore(odPickBtn, dz);
-  container.insertBefore(odLink, odPickBtn);
 }
 
 function addLink() { appendLinkRow(null); }
