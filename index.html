@@ -3827,13 +3827,16 @@ async function spSaveData(data) {
   spStatusBar('💾', 'Synchronisation SharePoint…', '#2c7a4b');
   try {
     var driveId = await spGetDriveId();
+    // Un modal ouvert = édition en cours : on ne remplace PAS l'état affiché ni ne re-rend l'écran
+    // (sinon la saisie en cours, ex. changement de statut d'une mission, serait perturbée)
+    var modalOpen = !!document.querySelector('.modal-backdrop.show');
     // 1. RELIRE l'état distant et FUSIONNER avant d'écrire (anti-écrasement)
     var remote = await spFetchRemoteState();
     var toSave = data;
     if (remote) {
       toSave = mergeStates(data, remote);
-      // Appliquer la fusion à l'état courant pour que l'écran reflète les apports des autres
-      state = toSave;
+      // Appliquer la fusion à l'état courant seulement si aucune édition n'est en cours
+      if (!modalOpen) state = toSave;
     }
     toSave.meta = toSave.meta || {};
     toSave.meta.savedAt = new Date().toISOString();
@@ -3857,8 +3860,8 @@ async function spSaveData(data) {
     setTimeout(spStatusHide, 2000);
     // Mettre à jour le localStorage (filet de sécurité uniquement)
     storageSet(STORAGE_KEY, content);
-    // Rafraîchir l'affichage si la fusion a apporté des nouveautés
-    if (remote) { try { renderApp(true); } catch(e){} }
+    // Rafraîchir l'affichage si la fusion a apporté des nouveautés — sauf si édition en cours
+    if (remote && !modalOpen) { try { renderApp(true); } catch(e){} }
     // Traiter la file d'attente
     if (_spSaveQueue) {
       var queued = _spSaveQueue;
@@ -5075,10 +5078,10 @@ function renderMissionsContent() {
                   <td>
                     <select onchange="updateStatut('${a.id}', this.value)"
                       style="padding:4px 7px;border:1px solid var(--line);border-radius:5px;font-size:11.5px">
-                      <option value="a_lancer" ${a.statut==='a_lancer'?'selected':''}>À lancer</option>
-                      <option value="en_cours" ${a.statut==='en_cours'?'selected':''}>En cours</option>
-                      <option value="realise"  ${a.statut==='realise'?'selected':''}>Réalisé</option>
-                      <option value="archive"  ${a.statut==='archive'?'selected':''}>Archivé</option>
+                      <option value="a_lancer" ${resolveStatut(a)==='a_lancer'?'selected':''}>À lancer</option>
+                      <option value="en_cours" ${resolveStatut(a)==='en_cours'?'selected':''}>En cours</option>
+                      <option value="realise"  ${resolveStatut(a)==='realise'?'selected':''}>Réalisé</option>
+                      <option value="archive"  ${resolveStatut(a)==='archive'?'selected':''}>Archivé</option>
                     </select>
                   </td>
                   <td class="num">
@@ -5210,10 +5213,10 @@ function renderMissionsContent() {
                         <td>
                           <select onchange="updateStatut('${a.id}', this.value)"
                             style="padding:4px 7px;border:1px solid var(--line);border-radius:5px;font-size:11.5px">
-                            <option value="a_lancer" ${a.statut==='a_lancer'?'selected':''}>À lancer</option>
-                            <option value="en_cours" ${a.statut==='en_cours'?'selected':''}>En cours</option>
-                            <option value="realise"  ${a.statut==='realise'?'selected':''}>Réalisé</option>
-                            <option value="archive"  ${a.statut==='archive'?'selected':''}>Archivé</option>
+                            <option value="a_lancer" ${resolveStatut(a)==='a_lancer'?'selected':''}>À lancer</option>
+                            <option value="en_cours" ${resolveStatut(a)==='en_cours'?'selected':''}>En cours</option>
+                            <option value="realise"  ${resolveStatut(a)==='realise'?'selected':''}>Réalisé</option>
+                            <option value="archive"  ${resolveStatut(a)==='archive'?'selected':''}>Archivé</option>
                           </select>
                         </td>
                         <td class="num">
@@ -5261,6 +5264,7 @@ function updateStatut(id, val) {
   const a = state.actions.find(x => x.id === id);
   if (!a) return;
   a.statut = val;
+  a.statutManuel = true; // choix explicite → le statut manuel prime sur le calcul automatique
   a.updatedAt = Date.now();
   saveState();
   toast('Statut mis à jour');
@@ -6255,7 +6259,9 @@ function kanbanDrop(event, newStatut) {
     var action = state.actions.find(function(a){ return a.id === id; });
     if (action && action.statut !== newStatut) {
       action.statut = newStatut;
+      action.statutManuel = true; // déplacement explicite → statut manuel
       if (newStatut === 'realise' && !action.realiseAt) action.realiseAt = new Date().toISOString().slice(0,10);
+      action.updatedAt = Date.now();
       saveState(); renderPlanningInner();
       toast('✅ Action déplacée vers « ' + newStatut.replace(/_/g,' ') + ' »');
     }
