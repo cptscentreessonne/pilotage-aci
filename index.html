@@ -3625,7 +3625,7 @@ async function openOneDrivePicker(onPick) {
     entry: { oneDrive: {} },
     authentication: {},
     messaging: { origin: window.location.origin, channelId: '27' },
-    selection: { mode: 'single' },
+    selection: { mode: 'multiple' },
     typesAndSources: { mode: 'files', pivots: { oneDrive: true, recent: true } }
   };
 
@@ -11607,10 +11607,13 @@ function makeDropZone(containerId, listId, subfolder, appendFn) {
   dz.className = 'sp-dropzone';
   dz.style.cssText = 'border:2px dashed var(--line);border-radius:8px;padding:14px;text-align:center;'
     + 'font-size:12px;color:var(--ink-mute);cursor:pointer;margin-bottom:8px;transition:all .15s;background:var(--bg-soft)';
-  dz.innerHTML = '📎 Glissez un document ici, ou <span style="color:var(--teal-d);font-weight:600;text-decoration:underline">cliquez pour parcourir</span>'
-    + '<div style="font-size:10.5px;margin-top:3px;color:var(--ink-light)">Stocké dans SharePoint · téléchargeable ensuite</div>';
+  dz.innerHTML = '📎 Glissez un ou plusieurs documents ici, ou <span style="color:var(--teal-d);font-weight:600;text-decoration:underline">cliquez pour parcourir</span>'
+    + '<div style="font-size:10.5px;margin-top:3px;color:var(--ink-light)">Astuce : maintenez Ctrl (ou ⌘ sur Mac) pour sélectionner plusieurs fichiers · stockés dans SharePoint</div>';
   var input = document.createElement('input');
-  input.type = 'file'; input.multiple = true; input.style.display = 'none';
+  input.type = 'file';
+  input.multiple = true;
+  input.setAttribute('multiple', 'multiple'); // attribut HTML explicite (fiabilité multi-navigateurs)
+  input.style.display = 'none';
   dz.appendChild(input);
 
   // Bouton "Choisir depuis OneDrive" : ouvre le sélecteur de fichiers OneDrive intégré (Solution A)
