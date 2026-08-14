@@ -3449,6 +3449,10 @@ async function spGetDriveId() {
 
 var SP_DOC_FOLDER = 'CPTS-Pilotage/documents';
 
+// Lien web vers le dossier OneDrive partagé où l'équipe organise ses documents ACI
+// (accès rapide depuis la zone de dépôt — ouvre l'espace en ligne dans un nouvel onglet)
+var ONEDRIVE_DOCS_URL = 'https://cptscentreessonne-my.sharepoint.com/shared?id=%2Fpersonal%2Fyrigoulet%5Fcptscentreessonne%5Fonmicrosoft%5Fcom%2FDocuments%2FCPTS%20CENTRE%20ESSONNE%2FACI%2FMISE%20EN%20OEUVRE%20ACI%2FACTIONS%20ACI%202026&listurl=%2Fpersonal%2Fyrigoulet%5Fcptscentreessonne%5Fonmicrosoft%5Fcom%2FDocuments';
+
 // Nettoie un nom de fichier pour SharePoint
 function spSanitizeName(name) {
   return (name || 'fichier').replace(/[#%*:<>?/\\{|}"]/g, '-').replace(/\s+/g, ' ').trim();
@@ -4701,7 +4705,36 @@ function attributionBadgesHTML(a) {
 }
 
 // Filtres persistants de l'onglet Missions (conservés entre les re-rendus de synchro)
-var _missionFilters = { search: '', mission: '', theme: '', statut: '', type: '' };
+var _missionFilters = { search: '', mission: '', theme: '', statut: '', type: '', coord: '' };
+
+// Détermine le rôle d'une coordinatrice sur une action : 'pilote', 'appui' ou null.
+// pilote = owner ; appui = présent dans coOwners.
+function coordRoleOnAction(action, coord) {
+  if (!coord) return null;
+  if ((action.owner || '') === coord) return 'pilote';
+  if (Array.isArray(action.coOwners) && action.coOwners.indexOf(coord) >= 0) return 'appui';
+  return null;
+}
+
+// Indique si une action n'a AUCUNE attribution (ni pilote ni appui)
+function actionHasNoAttribution(action) {
+  var hasOwner = !!(action.owner && action.owner.trim());
+  var hasCo = Array.isArray(action.coOwners) && action.coOwners.length > 0;
+  return !hasOwner && !hasCo;
+}
+
+// Applique le filtre coordinatrice/rôle à une action. filterCoord peut valoir :
+// '' (tous), 'Yayi:pilote', 'Yayi:appui', ..., ou '__none__' (sans attribution)
+function matchCoordFilter(action, filterCoord) {
+  if (!filterCoord) return true;
+  if (filterCoord === '__none__') return actionHasNoAttribution(action);
+  var parts = filterCoord.split(':');
+  var coord = parts[0], role = parts[1] || '';
+  var r = coordRoleOnAction(action, coord);
+  if (!r) return false;
+  if (!role) return true; // toutes les missions de cette coordinatrice (pilote ou appui)
+  return r === role;
+}
 
 function renderMissions() {
   const el = document.getElementById('view-missions');
@@ -4749,6 +4782,25 @@ function renderMissions() {
         <option value="resultat"${_missionFilters.type==='resultat'?' selected':''}>Résultat</option>
         <option value="suivi"${_missionFilters.type==='suivi'?' selected':''}>Suivi</option>
       </select>
+      <select id="filter-coord" style="padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;min-width:170px" onchange="renderMissionsContent()">
+        <option value="">👥 Toutes coordinatrices</option>
+        <optgroup label="Yayi">
+          <option value="Yayi"${_missionFilters.coord==='Yayi'?' selected':''}>Yayi — pilote ou appui</option>
+          <option value="Yayi:pilote"${_missionFilters.coord==='Yayi:pilote'?' selected':''}>Yayi — pilote</option>
+          <option value="Yayi:appui"${_missionFilters.coord==='Yayi:appui'?' selected':''}>Yayi — appui</option>
+        </optgroup>
+        <optgroup label="Yoanna">
+          <option value="Yoanna"${_missionFilters.coord==='Yoanna'?' selected':''}>Yoanna — pilote ou appui</option>
+          <option value="Yoanna:pilote"${_missionFilters.coord==='Yoanna:pilote'?' selected':''}>Yoanna — pilote</option>
+          <option value="Yoanna:appui"${_missionFilters.coord==='Yoanna:appui'?' selected':''}>Yoanna — appui</option>
+        </optgroup>
+        <optgroup label="Margaux">
+          <option value="Margaux"${_missionFilters.coord==='Margaux'?' selected':''}>Margaux — pilote ou appui</option>
+          <option value="Margaux:pilote"${_missionFilters.coord==='Margaux:pilote'?' selected':''}>Margaux — pilote</option>
+          <option value="Margaux:appui"${_missionFilters.coord==='Margaux:appui'?' selected':''}>Margaux — appui</option>
+        </optgroup>
+        <option value="__none__"${_missionFilters.coord==='__none__'?' selected':''}>⚪ Sans attribution</option>
+      </select>
       <button class="btn btn-primary" onclick="openActionModal()">＋ Nouvelle action</button>
     </div>
     <div id="missions-content"></div>
@@ -4777,12 +4829,14 @@ function renderMissionsContent() {
   const filterT = document.getElementById('filter-type') ? document.getElementById('filter-type').value : '';
   const filterQ = (document.getElementById('filter-search') ? document.getElementById('filter-search').value.toLowerCase().trim() : '');
   const filterTh = (document.getElementById('filter-theme') ? document.getElementById('filter-theme').value : '');
+  const filterC = (document.getElementById('filter-coord') ? document.getElementById('filter-coord').value : '');
   // Mémoriser les filtres pour qu'ils survivent aux re-rendus (synchro auto)
   _missionFilters.search  = document.getElementById('filter-search') ? document.getElementById('filter-search').value : '';
   _missionFilters.mission = filterM;
   _missionFilters.theme   = filterTh;
   _missionFilters.statut  = filterS;
   _missionFilters.type    = filterT;
+  _missionFilters.coord   = filterC;
   const el = document.getElementById('missions-content');
 
   // Si un thème est sélectionné : affichage par thème (toutes missions)
@@ -4791,6 +4845,7 @@ function renderMissionsContent() {
       if ((a.theme || '') !== filterTh) return false;
       if (filterS && a.statut !== filterS) return false;
       if (filterT && a.indicateur.type !== filterT) return false;
+      if (!matchCoordFilter(a, filterC)) return false;
       if (filterQ && !(
         a.titre.toLowerCase().includes(filterQ) ||
         (a.indicateur.libelle||'').toLowerCase().includes(filterQ) ||
@@ -4899,6 +4954,7 @@ function renderMissionsContent() {
     let acts = state.actions.filter(a => a.mission === m.id);
     if (filterS) acts = acts.filter(a => a.statut === filterS);
     if (filterT) acts = acts.filter(a => a.indicateur.type === filterT);
+    if (filterC) acts = acts.filter(a => matchCoordFilter(a, filterC));
     if (filterQ) acts = acts.filter(a =>
       a.titre.toLowerCase().includes(filterQ) ||
       (a.theme||'').toLowerCase().includes(filterQ) ||
@@ -4906,7 +4962,7 @@ function renderMissionsContent() {
       (a.indicateur.cible||'').toLowerCase().includes(filterQ) ||
       (a.description||'').toLowerCase().includes(filterQ)
     );
-    if (!acts.length && (filterS || filterT || filterQ)) return;
+    if (!acts.length && (filterS || filterT || filterQ || filterC)) return;
 
     const taux = calcTauxMission(m.id);
     const depTot = sumDepenses(d => d.mission === m.id);
@@ -11386,6 +11442,18 @@ function makeDropZone(containerId, listId, subfolder, appendFn) {
   input.type = 'file'; input.multiple = true; input.style.display = 'none';
   dz.appendChild(input);
 
+  // Lien d'accès rapide vers le dossier OneDrive de l'équipe (ouvre l'espace en ligne)
+  var odLink = document.createElement('a');
+  odLink.href = ONEDRIVE_DOCS_URL;
+  odLink.target = '_blank';
+  odLink.rel = 'noopener';
+  odLink.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;padding:6px 12px;'
+    + 'border:1px solid var(--line);border-radius:7px;background:var(--surface);text-decoration:none;'
+    + 'font-size:11.5px;font-weight:600;color:var(--teal-d);cursor:pointer';
+  odLink.innerHTML = '📂 Ouvrir notre dossier OneDrive (documents ACI)';
+  odLink.title = 'Ouvre le dossier OneDrive partagé dans un nouvel onglet — pour récupérer un document déjà classé';
+  odLink.addEventListener('click', function(e){ e.stopPropagation(); });
+
   function handleFiles(files) {
     if (!files || !files.length) return;
     if (!spUploadAvailable()) {
@@ -11424,6 +11492,7 @@ function makeDropZone(containerId, listId, subfolder, appendFn) {
   });
 
   container.insertBefore(dz, document.getElementById(listId));
+  container.insertBefore(odLink, dz);
 }
 
 function addLink() { appendLinkRow(null); }
