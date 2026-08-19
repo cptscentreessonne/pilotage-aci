@@ -1493,6 +1493,15 @@ a:hover { text-decoration: underline; }
           <label>Note (optionnelle)</label>
           <textarea id="r-note" rows="2" placeholder="Référence virement, contexte…"></textarea>
         </div>
+
+        <div class="form-field row-full">
+          <label>📎 Document justificatif <small style="font-weight:400;color:var(--ink-mute)">(depuis votre ordinateur)</small></label>
+          <div id="r-doc-dropzone" style="border:2px dashed var(--line);border-radius:8px;padding:8px 12px;text-align:center;font-size:12px;color:var(--ink-mute);cursor:pointer;background:var(--bg-soft);display:flex;align-items:center;justify-content:center;gap:6px;min-height:38px">
+            📎 Glissez un document depuis votre ordinateur, ou <span style="color:var(--teal-d);font-weight:600;text-decoration:underline">cliquez pour parcourir</span>
+          </div>
+          <input type="file" id="r-doc-input" style="display:none" />
+          <div id="r-doc-current" style="margin-top:6px"></div>
+        </div>
       </form>
     </div>
     <div class="modal-footer">
@@ -1570,6 +1579,15 @@ a:hover { text-decoration: underline; }
           <div class="form-field row-full">
             <label>Note / justificatif</label>
             <input type="text" id="d-note" placeholder="Référence facture, précision…" />
+          </div>
+
+          <div class="form-field row-full">
+            <label>📎 Document justificatif <small style="font-weight:400;color:var(--ink-mute)">(depuis votre ordinateur)</small></label>
+            <div id="d-doc-dropzone" style="border:2px dashed var(--line);border-radius:8px;padding:8px 12px;text-align:center;font-size:12px;color:var(--ink-mute);cursor:pointer;background:var(--bg-soft);display:flex;align-items:center;justify-content:center;gap:6px;min-height:38px">
+              📎 Glissez un document depuis votre ordinateur, ou <span style="color:var(--teal-d);font-weight:600;text-decoration:underline">cliquez pour parcourir</span>
+            </div>
+            <input type="file" id="d-doc-input" style="display:none" />
+            <div id="d-doc-current" style="margin-top:6px"></div>
           </div>
         </div>
       </form>
@@ -1762,7 +1780,12 @@ a:hover { text-decoration: underline; }
           </div>
           <div class="form-field row-full">
             <label>📹 Lien visio <small style="font-weight:400;color:var(--ink-mute)">(si évènement en ligne ou hybride)</small></label>
-            <input type="url" id="e-visio" placeholder="https://teams.microsoft.com/..." />
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="url" id="e-visio" placeholder="https://teams.microsoft.com/..." style="flex:1"
+                oninput="toggleVisioBtn('e-visio','e-visio-join')" onchange="toggleVisioBtn('e-visio','e-visio-join')" />
+              <button type="button" id="e-visio-join" onclick="openVisioFromField('e-visio')"
+                style="display:none;align-items:center;gap:4px;padding:6px 12px;border:1px solid var(--teal);border-radius:6px;background:var(--teal);color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">📹 Rejoindre</button>
+            </div>
           </div>
           <div class="form-field row-full">
             <label>Lieu</label>
@@ -1950,7 +1973,12 @@ a:hover { text-decoration: underline; }
 
         <div class="form-field">
           <label>📹 Lien visio <small style="font-weight:400;color:var(--ink-mute)">(Teams, Zoom, Meet…)</small></label>
-          <input type="url" id="j-visio" placeholder="https://teams.microsoft.com/..." />
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="url" id="j-visio" placeholder="https://teams.microsoft.com/..." style="flex:1"
+              oninput="toggleVisioBtn('j-visio','j-visio-join')" onchange="toggleVisioBtn('j-visio','j-visio-join')" />
+            <button type="button" id="j-visio-join" onclick="openVisioFromField('j-visio')"
+              style="display:none;align-items:center;gap:4px;padding:6px 12px;border:1px solid var(--teal);border-radius:6px;background:var(--teal);color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">📹 Rejoindre</button>
+          </div>
         </div>
 
         <div class="form-field">
@@ -2085,7 +2113,7 @@ a:hover { text-decoration: underline; }
       <div style="display:flex;gap:6px;align-items:center">
         <input type="text" id="subtask-new-label" placeholder="Nouvelle sous-tâche…"
           style="flex:1;padding:7px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;background:var(--surface)"
-          onkeydown="if(event.key==='Enter'){addSubTask();}" />
+          onkeydown="if(event.key==='Enter'){event.preventDefault();addSubTask();}" />
         <button class="btn btn-primary btn-sm" onclick="addSubTask()">＋</button>
       </div>
       <!-- Note de la tâche -->
@@ -2210,18 +2238,59 @@ const MISSIONS = [
 const MISSION_BY_ID = Object.fromEntries(MISSIONS.map(m => [m.id, m]));
 
 // Thèmes proposés pour la checklist "Journée prévention" (missions ACI transversales)
+// IMPORTANT : rattachement EXPLICITE par (thème, intitulé) des sous-missions ACI.
+// Ce regroupement est propre à la Journée prévention et NE MODIFIE PAS le thème réel
+// des actions dans l'onglet Missions. Une même sous-mission peut être rangée ici sous
+// une catégorie différente de son thème d'origine (regroupement thématique).
+// La correspondance se fait sur le couple { theme, titre } (stable), pas sur l'id (dynamique).
 const PREV_THEMES_BASE = [
-  { id: 'cancer_sein',     label: 'Cancer du sein',                 kw: ['sein', 'mammographie', 'mammo', 'auto-palpation', 'palpation'] },
-  { id: 'cancer_col',      label: 'Cancer du col de l\'utérus',     kw: ['col', 'utérus', 'uterus', 'cervical', 'frottis'] },
-  { id: 'cancer_colo',     label: 'Cancer colorectal',              kw: ['colorectal', 'colo-rectal', 'côlon', 'colon', 'hémoccult', 'hemoccult'] },
-  { id: 'bpco',            label: 'BPCO',                           kw: ['bpco', 'respiratoire', 'pulmonaire', 'souffle', 'spiro', 'spirométrie', 'tabac'] },
-  { id: 'lombalgies',      label: 'Lombalgies',                     kw: ['lombalgie', 'lombalgies', 'dos', 'lombaire', 'rachis', 'mal de dos'] },
-  { id: 'sante_mentale_f', label: 'Bien-être mental des femmes',    kw: ['mental', 'santé mentale', 'psy', 'bien-être', 'bien être', 'psychique', 'dépression', 'depression'] },
-  { id: 'hpv',             label: 'HPV',                            kw: ['hpv', 'papillomavirus', 'vaccination', 'vaccin'] },
-  { id: 'sans_mt',         label: 'Sans MT',                        kw: ['sans mt', 'sans médecin', 'sans medecin', 'médecin traitant', 'medecin traitant', 'mtt', 'sans mtt'] },
-  { id: 'endometriose',    label: 'Endométriose',                   kw: ['endométriose', 'endometriose', 'endo'] },
-  { id: 'sport_sante',     label: 'Sport-santé',                    kw: ['sport-santé', 'sport santé', 'sport-sante', 'aps', 'activité physique', 'activite physique'] },
-  { id: 'proto',           label: 'Proto',                          kw: ['proto', 'protoxyde', 'protoxyde d\'azote', 'gaz hilarant'] }
+  { id: 'cancer_sein', label: 'Cancer du sein', match: [
+    { theme: 'Cancer du sein', titre: 'Amélioration de la participation au dépistage du cancer du sein' },
+    { theme: 'Cancer du sein', titre: 'Sensibilisation et communication assurés + PS (avec CPTS Santé Seine Essonne)' },
+    { theme: 'Cancer du sein', titre: 'Prise en charge des patientes présentant un risque' }
+  ]},
+  { id: 'cancer_col', label: 'Cancer du col de l\'utérus', match: [
+    { theme: 'Cancer col utérus', titre: 'Amélioration de la participation au dépistage du cancer du col de l\'utérus' }
+  ]},
+  { id: 'etudiants', label: 'Étudiants', match: [
+    { theme: 'Cancer col utérus / HPV', titre: 'Sensibilisation HPV patients + PS (avec CPTS Santé Seine Essonne)' },
+    { theme: 'Cancer col utérus / HPV', titre: 'Actions de vaccination HPV dans les établissements' },
+    { theme: 'Santé étudiants', titre: 'Promotion de la vaccination HPV chez enfants et jeunes' }
+  ]},
+  { id: 'cancer_colo', label: 'Cancer colorectal', match: [
+    { theme: 'Cancer colorectal', titre: 'Amélioration de la participation au dépistage du cancer colorectal' },
+    { theme: 'Cancer colorectal', titre: 'Sensibilisation et communication assurés + PS (avec CPTS Santé Seine Essonne)' }
+  ]},
+  { id: 'bpco', label: 'BPCO', match: [
+    { theme: 'BPCO', titre: 'Améliorer le dépistage de la BPCO (spirométries)' },
+    { theme: 'BPCO', titre: 'Actions de dépistage BPCO sur les communes du territoire' },
+    { theme: 'BPCO', titre: 'Actions de vaccination antigrippale (patients BPCO stables)' },
+    { theme: 'BPCO', titre: 'Ateliers « Bouger avec une BPCO » (sport-santé)' },
+    { theme: 'BPCO', titre: 'Ateliers d\'arrêt du tabac pluriprofessionnels (MG, IDE, pharmacien, tabacologue)' },
+    { theme: 'BPCO', titre: 'Sensibilisation patients fumeurs et orientation vers les PS' }
+  ]},
+  { id: 'lombalgies', label: 'Lombalgie', match: [
+    { theme: 'Lombalgie chronique', titre: 'Inclusion des patients dans le parcours coordonné' },
+    { theme: 'Lombalgie chronique', titre: 'Circuit d\'orientation prioritaire vers MK' }
+  ]},
+  { id: 'sante_mentale_f', label: 'Bien-être mental des femmes', match: [
+    { theme: 'Femmes / Santé mentale', titre: 'Actions en faveur du bien-être et de la santé mentale des femmes' },
+    { theme: 'Femmes / Santé mentale', titre: 'Programme d\'accompagnement santé mentale (préparation naissance, post-partum, café des mamans)' },
+    { theme: 'Femmes / Santé mentale', titre: 'Promotion « Mon soutien psy » pour la dépression post-partum' }
+  ]},
+  { id: 'sans_mt', label: 'Sans MT', match: [
+    { theme: 'Patients sans MT', titre: 'Prise en charge des patients sans MT en partenariat (DAC/MAS/CLIC/SPES)' }
+  ]},
+  { id: 'endometriose', label: 'Endométriose', match: [
+    { theme: 'Endométriose', titre: 'Communication autour du programme gestion de la douleur (endométriose) avec CPTS Santé Seine Essonne' }
+  ]},
+  { id: 'sport_sante', label: 'Sport-santé', match: [
+    { theme: 'Sport Santé', titre: 'Promotion du programme ETP (supports de communication)' },
+    { theme: 'Sport Santé', titre: 'Orientation patients ETP obésité' },
+    { theme: 'Sport Santé', titre: 'Campagnes de prévention activité physique adaptée (enfants/salariés/PA)' },
+    { theme: 'Lombalgie chronique', titre: 'Sensibilisation patients sur l\'activité physique (avec CPTS Val de Seine)' }
+  ]},
+  { id: 'proto', label: 'Proto', match: [], projetMatch: ['Prévention contre le protoxyde d\'azote'] }
 ];
 
 // Thèmes effectifs = thèmes de base + thèmes personnalisés ajoutés par l'utilisateur (persistés)
@@ -2230,27 +2299,42 @@ function getPrevThemes() {
   return PREV_THEMES_BASE.concat(custom);
 }
 
-// Retourne les éléments (actions ACI + projets Hors ACI) correspondant à un thème de prévention
+// Normalise un texte pour comparaison tolérante (espaces, casse)
+function _prevNorm(s) {
+  return (s || '').toString().trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+// Retourne les éléments (actions ACI + projets Hors ACI) rattachés à une catégorie de prévention.
+// Rattachement EXPLICITE par couple (thème, intitulé) — pas de recherche par mots-clés.
 function actionsForPrevTheme(themeId) {
   var th = getPrevThemes().find(function(t){ return t.id === themeId; });
   if (!th) return [];
-  var kws = (th.kw || []).map(function(k){ return k.toLowerCase(); });
   var res = [];
-  // Actions ACI
-  state.actions.forEach(function(a) {
-    if (a.statut === 'archive') return;
-    var hay = ((a.theme||'') + ' ' + (a.titre||'')).toLowerCase();
-    if (kws.some(function(k){ return hay.indexOf(k) !== -1; })) {
-      res.push({ id: a.id, titre: a.titre, kind: 'aci' });
-    }
+  // Support de l'ancien format (mots-clés kw) pour d'éventuels thèmes personnalisés
+  if (th.kw && !th.match) {
+    var kws = (th.kw || []).map(function(k){ return k.toLowerCase(); });
+    state.actions.forEach(function(a) {
+      if (a.statut === 'archive') return;
+      var hay = ((a.theme||'') + ' ' + (a.titre||'')).toLowerCase();
+      if (kws.some(function(k){ return hay.indexOf(k) !== -1; })) {
+        res.push({ id: a.id, titre: a.titre, kind: 'aci' });
+      }
+    });
+    return res;
+  }
+  // Rattachement explicite par (thème, intitulé)
+  var matches = th.match || [];
+  matches.forEach(function(m) {
+    var found = state.actions.find(function(a) {
+      return _prevNorm(a.theme) === _prevNorm(m.theme) && _prevNorm(a.titre) === _prevNorm(m.titre);
+    });
+    if (found) res.push({ id: found.id, titre: found.titre, kind: 'aci' });
   });
-  // Projets Hors ACI
-  (state.projets||[]).forEach(function(p) {
-    if (p.statut === 'archive') return;
-    var hay = ((p.titre||'') + ' ' + (p.description||'')).toLowerCase();
-    if (kws.some(function(k){ return hay.indexOf(k) !== -1; })) {
-      res.push({ id: 'projet:' + p.id, titre: '🚀 ' + p.titre, kind: 'projet' });
-    }
+  // Projets hors ACI rattachés (ex. Proto), par intitulé
+  var projetMatch = th.projetMatch || [];
+  projetMatch.forEach(function(ptitre) {
+    var p = (state.projets||[]).find(function(pp){ return _prevNorm(pp.titre) === _prevNorm(ptitre); });
+    if (p) res.push({ id: 'projet:' + p.id, titre: '🚀 ' + p.titre, kind: 'projet' });
   });
   return res;
 }
@@ -2370,7 +2454,7 @@ const DEFAULT_ACTIONS = [
     libelle:"Participation à la gouvernance SAS", type:'resultat', unite:"",
     initiale:"", cible:"Participation régulière COPIL + présence association", budget:1000, prorata:false,
     livrables:["Feuille d'émargement","CR de CA"] },
-  { mission:'acces_soins', theme:"SAS / SNP", titre:"Actions de promotion du SAS de l'Essonne",
+  { mission:'acces_soins', theme:"SAS / SNP", titre:"Actions de promotion des SAS de l'Essonne",
     libelle:"Nombre d'actions de promotion SAS", type:'resultat', unite:"actions",
     initiale:"", cible:"2 actions de promotion a minima", budget:2000, prorata:false,
     livrables:["Bilan annuel","Supports (webinaires, mailing, newsletters)"] },
@@ -2535,7 +2619,7 @@ const DEFAULT_ACTIONS = [
 
   // ===== MISSION 3 — PRÉVENTION =====
   // Cancer colorectal
-  { mission:'prevention', theme:"Cancer colorectal", titre:"Amélioration de la participation au dépistage colorectal",
+  { mission:'prevention', theme:"Cancer colorectal", titre:"Amélioration de la participation au dépistage du cancer colorectal",
     libelle:"Taux de patients dépistés", type:'resultat', unite:"%",
     initiale:"25,6% (au 31/10/2025)", cible:"Augmentation du taux de dépistage", budget:1000, prorata:false,
     livrables:["Données CPAM"] },
@@ -2559,7 +2643,7 @@ const DEFAULT_ACTIONS = [
     livrables:["Liste anonymisée des patientes adressées"] },
 
   // Cancer col utérus / HPV
-  { mission:'prevention', theme:"Cancer col utérus", titre:"Amélioration de la participation au dépistage du col de l'utérus",
+  { mission:'prevention', theme:"Cancer col utérus", titre:"Amélioration de la participation au dépistage du cancer du col de l'utérus",
     libelle:"Taux de patientes dépistées", type:'resultat', unite:"%",
     initiale:"59,7% (au 31/10/2025)", cible:"Augmentation du taux de dépistage", budget:1000, prorata:false,
     livrables:["Données CPAM"] },
@@ -2675,7 +2759,7 @@ const ACTIONS_ATTRIBUTIONS = {
     { pilote: ['Yayi'], appui: ['Yoanna','Margaux'] },
   "Prise en charge des patients sans MT en partenariat (DAC/MAS/CLIC/SPES)":
     { pilote: ['Margaux'], appui: ['Yayi'] },
-  "Actions de promotion du SAS de l'Essonne":
+  "Actions de promotion des SAS de l'Essonne":
     { pilote: ['Margaux'], appui: ['Yayi'] },
   "Implication CPTS dans la mise en place des filières IDE et sage-femme":
     { pilote: ['Margaux'], appui: ['Yayi'] },
@@ -2755,13 +2839,13 @@ const ACTIONS_ATTRIBUTIONS = {
 
   // ===== M3 — Prévention =====
   // Cancer colorectal
-  "Amélioration de la participation au dépistage colorectal":
+  "Amélioration de la participation au dépistage du cancer colorectal":
     { copilote: ['Yoanna','Yayi'] },
   // Cancer du sein
   "Amélioration de la participation au dépistage du cancer du sein":
     { copilote: ['Yoanna','Yayi'] },
   // Cancer col utérus
-  "Amélioration de la participation au dépistage du col de l'utérus":
+  "Amélioration de la participation au dépistage du cancer du col de l'utérus":
     { copilote: ['Yoanna','Yayi'] },
   // Santé étudiants
   "Actions de prévention en établissements d'enseignement supérieur (Université d'Évry)":
@@ -3169,6 +3253,7 @@ function defaultState() {
     orga_interne: GESTION_INTERNE_DEFAUT.map(function(label) {
       return { id: makeId('ocat'), label: label, tasks: [], createdAt: Date.now() };
     }),
+    reunionEquipe: { points: [], presents: [], history: [] },
     evtTypes: EVT_TYPES_DEFAULT.slice(),
     prevThemesCustom: []
   };
@@ -3197,6 +3282,13 @@ function loadState() {
         if (!Array.isArray(parsed.agenda)) parsed.agenda = [];
         if (!Array.isArray(parsed.documents)) parsed.documents = [];
         if (!Array.isArray(parsed.orga_interne)) parsed.orga_interne = [];
+        // Réunion d'équipe : points à aborder, présents, historique des réunions clôturées
+        if (!parsed.reunionEquipe || typeof parsed.reunionEquipe !== 'object') {
+          parsed.reunionEquipe = { points: [], presents: [], history: [] };
+        }
+        if (!Array.isArray(parsed.reunionEquipe.points)) parsed.reunionEquipe.points = [];
+        if (!Array.isArray(parsed.reunionEquipe.presents)) parsed.reunionEquipe.presents = [];
+        if (!Array.isArray(parsed.reunionEquipe.history)) parsed.reunionEquipe.history = [];
         if (!Array.isArray(parsed.recettes)) parsed.recettes = [];
         if (!Array.isArray(parsed.evtTypes)) parsed.evtTypes = EVT_TYPES_DEFAULT.slice();
         if (!Array.isArray(parsed.prevThemesCustom)) parsed.prevThemesCustom = [];
@@ -3211,6 +3303,22 @@ function loadState() {
         Object.keys(parsed._deleted).forEach(function(id){
           if (parsed._deleted[id] < _cutoff) delete parsed._deleted[id];
         });
+
+        // Migration v8 — Renommage d'intitulés d'actions (col de l'utérus, colorectal, SAS)
+        // pour aligner les données existantes sur les nouveaux libellés.
+        if (Array.isArray(parsed.actions)) {
+          var _renames = {
+            "Amélioration de la participation au dépistage du col de l'utérus":
+              "Amélioration de la participation au dépistage du cancer du col de l'utérus",
+            "Amélioration de la participation au dépistage colorectal":
+              "Amélioration de la participation au dépistage du cancer colorectal",
+            "Actions de promotion du SAS de l'Essonne":
+              "Actions de promotion des SAS de l'Essonne"
+          };
+          parsed.actions.forEach(function(a){
+            if (a && _renames[a.titre]) { a.titre = _renames[a.titre]; }
+          });
+        }
 
         // Migration v7a — Injection des attributions selon les fiches de mission
         // pour les actions qui n'ont pas encore d'owner défini
@@ -3484,6 +3592,25 @@ var SP_DOC_FOLDER = 'CPTS-Pilotage/documents';
 var ONEDRIVE_DOCS_URL = 'https://cptscentreessonne-my.sharepoint.com/shared?id=%2Fpersonal%2Fyrigoulet%5Fcptscentreessonne%5Fonmicrosoft%5Fcom%2FDocuments%2FCPTS%20CENTRE%20ESSONNE%2FACI%2FMISE%20EN%20OEUVRE%20ACI%2FACTIONS%20ACI%202026&listurl=%2Fpersonal%2Fyrigoulet%5Fcptscentreessonne%5Fonmicrosoft%5Fcom%2FDocuments';
 
 // Nettoie un nom de fichier pour SharePoint
+// Ouvre le lien visio saisi dans un champ (bouton "Rejoindre" des fiches).
+// N'ouvre que si un lien est présent ; complète le protocole si besoin.
+function openVisioFromField(fieldId) {
+  var el = document.getElementById(fieldId);
+  if (!el) return;
+  var url = (el.value || '').trim();
+  if (!url) { toast('Aucun lien visio saisi'); return; }
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  window.open(url, '_blank', 'noopener');
+}
+
+// Met à jour la visibilité d'un bouton "Rejoindre" selon que le champ contient un lien.
+function toggleVisioBtn(fieldId, btnId) {
+  var el = document.getElementById(fieldId);
+  var btn = document.getElementById(btnId);
+  if (!el || !btn) return;
+  btn.style.display = (el.value || '').trim() ? 'inline-flex' : 'none';
+}
+
 function spSanitizeName(name) {
   return (name || 'fichier').replace(/[#%*:<>?/\\{|}"]/g, '-').replace(/\s+/g, ' ').trim();
 }
@@ -3560,21 +3687,32 @@ async function spUploadFile(file, subfolder, onProgress) {
 }
 
 // Télécharge un fichier SharePoint par son id (déclenche le téléchargement navigateur)
-async function spDownloadFileById(fileId, fileName) {
+async function spDownloadFileById(fileId, fileName, driveId) {
   if (!spUploadAvailable()) { toast('⚠️ Connectez-vous à SharePoint pour télécharger'); return; }
   try {
-    var driveId = await spGetDriveId();
-    var resp = await fetch(
-      'https://graph.microsoft.com/v1.0/drives/' + driveId + '/items/' + fileId + '/content',
-      { headers: { 'Authorization': 'Bearer ' + _spToken } }
-    );
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    var blob = await resp.blob();
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url; a.download = fileName || 'fichier';
-    document.body.appendChild(a); a.click();
-    setTimeout(function(){ URL.revokeObjectURL(url); document.body.removeChild(a); }, 100);
+    // Drives à essayer, dans l'ordre : celui du fichier (OneDrive), puis le drive SharePoint principal
+    var drives = [];
+    if (driveId) drives.push(driveId);
+    var mainDrive = await spGetDriveId();
+    if (mainDrive && drives.indexOf(mainDrive) < 0) drives.push(mainDrive);
+    var lastErr = null;
+    for (var i = 0; i < drives.length; i++) {
+      try {
+        var resp = await fetch(
+          'https://graph.microsoft.com/v1.0/drives/' + drives[i] + '/items/' + fileId + '/content',
+          { headers: { 'Authorization': 'Bearer ' + _spToken } }
+        );
+        if (!resp.ok) { lastErr = new Error('HTTP ' + resp.status); continue; }
+        var blob = await resp.blob();
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = fileName || 'fichier';
+        document.body.appendChild(a); a.click();
+        setTimeout(function(){ URL.revokeObjectURL(url); document.body.removeChild(a); }, 100);
+        return; // succès
+      } catch(err) { lastErr = err; }
+    }
+    throw lastErr || new Error('Fichier introuvable');
   } catch(e) {
     console.error('spDownloadFileById', e);
     toast('⚠️ Téléchargement impossible');
@@ -3583,15 +3721,22 @@ async function spDownloadFileById(fileId, fileName) {
 
 // Aperçu d'un document : ouvre le fichier dans la visionneuse en ligne (SharePoint/OneDrive),
 // sans le télécharger. Utilise en priorité le webUrl du fichier ; à défaut, récupère un lien.
-async function spPreviewFile(fileId, webUrl) {
+async function spPreviewFile(fileId, webUrl, driveId) {
   // Si on dispose déjà du lien web (visionneuse Office/PDF en ligne), on l'ouvre directement
   if (webUrl) { window.open(webUrl, '_blank', 'noopener'); return; }
   if (!spUploadAvailable()) { toast('⚠️ Connectez-vous à SharePoint pour l\'aperçu'); return; }
   try {
-    var driveId = await spGetDriveId();
-    // Récupérer le webUrl du fichier via ses métadonnées
-    var meta = await spGraphCall('GET', '/drives/' + driveId + '/items/' + fileId);
-    if (meta && meta.webUrl) { window.open(meta.webUrl, '_blank', 'noopener'); return; }
+    // Essayer le drive du fichier (OneDrive) puis le drive principal
+    var drives = [];
+    if (driveId) drives.push(driveId);
+    var mainDrive = await spGetDriveId();
+    if (mainDrive && drives.indexOf(mainDrive) < 0) drives.push(mainDrive);
+    for (var i = 0; i < drives.length; i++) {
+      try {
+        var meta = await spGraphCall('GET', '/drives/' + drives[i] + '/items/' + fileId);
+        if (meta && meta.webUrl) { window.open(meta.webUrl, '_blank', 'noopener'); return; }
+      } catch(err) { /* essayer le drive suivant */ }
+    }
     toast('⚠️ Aperçu indisponible pour ce fichier');
   } catch(e) {
     console.error('spPreviewFile', e);
@@ -3755,6 +3900,57 @@ function mergeEntityList(localList, remoteList, deletedMap) {
     .map(function(id){ return byId[id]; });
 }
 
+// Fusion spécifique de la Gestion interne : fusionne les catégories par id, ET les tâches
+// à l'intérieur de chaque catégorie par id — pour ne perdre aucun ajout simultané entre
+// coordinatrices (ex. Yayi et Yoanna ajoutent chacune une tâche dans la même catégorie).
+function mergeOrgaInterne(localList, remoteList, deletedMap) {
+  localList = Array.isArray(localList) ? localList : [];
+  remoteList = Array.isArray(remoteList) ? remoteList : [];
+  deletedMap = deletedMap || {};
+  function ts(e) {
+    if (!e) return 0;
+    if (e.updatedAt) return typeof e.updatedAt === 'number' ? e.updatedAt : new Date(e.updatedAt).getTime();
+    if (e.createdAt) return typeof e.createdAt === 'number' ? e.createdAt : new Date(e.createdAt).getTime();
+    return 0;
+  }
+  var localById = {};
+  localList.forEach(function(c){ if (c && c.id) localById[c.id] = c; });
+  var remoteById = {};
+  remoteList.forEach(function(c){ if (c && c.id) remoteById[c.id] = c; });
+  var order = [];
+  var seen = {};
+  remoteList.forEach(function(c){ if (c && c.id && !seen[c.id]) { order.push(c.id); seen[c.id]=1; } });
+  localList.forEach(function(c){ if (c && c.id && !seen[c.id]) { order.push(c.id); seen[c.id]=1; } });
+
+  var result = [];
+  order.forEach(function(id){
+    var delTs = deletedMap[id];
+    var lc = localById[id], rc = remoteById[id];
+    var newest = ts(lc) >= ts(rc) ? (lc || rc) : (rc || lc);
+    if (delTs && ts(newest) <= delTs) return; // supprimée et non recréée après
+    if (!lc && rc) { result.push(rc); return; }
+    if (lc && !rc) { result.push(lc); return; }
+    // Les deux existent : fusionner les tâches par id
+    var merged = ts(lc) >= ts(rc) ? Object.assign({}, lc) : Object.assign({}, rc);
+    var taskById = {};
+    var taskOrder = [];
+    (rc.tasks||[]).forEach(function(t){ if (t && t.id) { taskById[t.id] = t; taskOrder.push(t.id); } });
+    (lc.tasks||[]).forEach(function(t){
+      if (!t || !t.id) return;
+      if (!taskById[t.id]) { taskById[t.id] = t; taskOrder.push(t.id); }
+      else {
+        var a = t, b = taskById[t.id];
+        var ta = a.doneAt ? new Date(a.doneAt).getTime() : (a.createdAt||0);
+        var tb = b.doneAt ? new Date(b.doneAt).getTime() : (b.createdAt||0);
+        taskById[t.id] = ta >= tb ? a : b;
+      }
+    });
+    merged.tasks = taskOrder.map(function(tid){ return taskById[tid]; });
+    result.push(merged);
+  });
+  return result;
+}
+
 // Fusionne l'état distant (SharePoint) avec l'état local courant.
 // Retourne un nouvel état fusionné sans perte, en respectant les suppressions (_deleted).
 function mergeStates(localState, remoteState) {
@@ -3783,12 +3979,42 @@ function mergeStates(localState, remoteState) {
   merged.evenements   = mergeEntityList(localState.evenements, remoteState.evenements, deletedMap);
   merged.jalons       = mergeEntityList(localState.jalons, remoteState.jalons, deletedMap);
   merged.recettes     = mergeEntityList(localState.recettes, remoteState.recettes, deletedMap);
-  merged.orga_interne = mergeEntityList(localState.orga_interne, remoteState.orga_interne, deletedMap);
+  merged.orga_interne = mergeOrgaInterne(localState.orga_interne, remoteState.orga_interne, deletedMap);
   merged.collabs      = mergeEntityList(localState.collabs, remoteState.collabs, deletedMap);
   merged.commu        = mergeEntityList(localState.commu, remoteState.commu, deletedMap);
+  // Réunion d'équipe : fusion des points par id + historique par id
+  merged.reunionEquipe = mergeReunionEquipe(localState.reunionEquipe, remoteState.reunionEquipe, base);
   // meta : garder le savedAt le plus récent
   merged.meta = base.meta || {};
   return merged;
+}
+
+// Fusionne la Réunion d'équipe : points et historique par id (aucun ajout perdu entre coordinatrices).
+// Les "présents" (état éphémère de la réunion en cours) suivent la version la plus récente (base).
+function mergeReunionEquipe(local, remote, base) {
+  local = local || { points: [], presents: [], history: [] };
+  remote = remote || { points: [], presents: [], history: [] };
+  function mergeById(a, b) {
+    a = Array.isArray(a) ? a : []; b = Array.isArray(b) ? b : [];
+    var byId = {}, order = [];
+    b.forEach(function(x){ if (x && x.id) { byId[x.id] = x; order.push(x.id); } });
+    a.forEach(function(x){
+      if (!x || !x.id) return;
+      if (!byId[x.id]) { byId[x.id] = x; order.push(x.id); }
+      else {
+        // garder la version la plus récemment modifiée (updatedAt), sinon la locale
+        var ta = x.updatedAt || 0, tb = byId[x.id].updatedAt || 0;
+        byId[x.id] = ta >= tb ? x : byId[x.id];
+      }
+    });
+    return order.map(function(id){ return byId[id]; });
+  }
+  var baseRE = (base && base.reunionEquipe) ? base.reunionEquipe : remote;
+  return {
+    points: mergeById(local.points, remote.points),
+    history: mergeById(local.history, remote.history),
+    presents: (baseRE.presents || [])
+  };
 }
 
 // Enregistre une suppression d'entité (pierre tombale) pour qu'elle soit respectée à la fusion
@@ -5278,6 +5504,7 @@ function updateStatut(id, val) {
 // Filtres du Récapitulatif des actions
 var _recapFilterType = '';
 var _recapFilterMission = '';
+var _recapFilterCoord = '';
 
 function renderRecapEvenementsHTML() {
   // Collecter tous les évènements de toutes les actions
@@ -5422,6 +5649,7 @@ function renderRecapEvenementsHTML() {
   var filteredEvts = evts.filter(function(ev) {
     if (filterType && ev.type !== filterType) return false;
     if (filterMission && ev.missionId !== filterMission) return false;
+    if (_recapFilterCoord && (ev.animatrices||[]).indexOf(_recapFilterCoord) < 0) return false;
     return true;
   });
 
@@ -5448,15 +5676,25 @@ function renderRecapEvenementsHTML() {
   html += '<option value="_projet"' + (filterMission === '_projet' ? ' selected' : '') + '>🚀 Projets hors ACI</option>';
   html += '<option value="_evenement"' + (filterMission === '_evenement' ? ' selected' : '') + '>🎉 Évènements hors ACI</option>';
   html += '</select>';
+  // Filtre par coordinatrice (évènements via animatrices, réunions/tâches via coords)
+  var filterCoord = _recapFilterCoord || '';
+  html += '<select id="recap-filter-coord" onchange="_recapFilterCoord=this.value;renderSuivi()" '
+    + 'style="padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;background:var(--surface)">'
+    + '<option value="">👥 Toutes coordinatrices</option>'
+    + '<option value="Yayi"' + (filterCoord === 'Yayi' ? ' selected' : '') + '>Yayi</option>'
+    + '<option value="Yoanna"' + (filterCoord === 'Yoanna' ? ' selected' : '') + '>Yoanna</option>'
+    + '<option value="Margaux"' + (filterCoord === 'Margaux' ? ' selected' : '') + '>Margaux</option>'
+    + '</select>';
   // Filtrer aussi les réunions
   var filteredReunions = reunions.filter(function(r) {
     if (filterMission && r.missionId !== filterMission) return false;
+    if (_recapFilterCoord && (r.coords||[]).indexOf(_recapFilterCoord) < 0) return false;
     return true;
   });
   // Compteur résultats filtrés
-  if (filterType || filterMission) {
+  if (filterType || filterMission || _recapFilterCoord) {
     html += '<span style="font-size:11.5px;color:var(--teal-d);font-weight:600">' + filteredEvts.length + ' / ' + evts.length + ' évènement' + (evts.length > 1 ? 's' : '') + '</span>';
-    html += '<button onclick="_recapFilterType=\'\';_recapFilterMission=\'\';renderSuivi()" '
+    html += '<button onclick="_recapFilterType=\'\';_recapFilterMission=\'\';_recapFilterCoord=\'\';renderSuivi()" '
       + 'style="padding:4px 10px;background:var(--bg-soft);border:1px solid var(--line);border-radius:5px;cursor:pointer;font-size:11px;color:var(--ink-mute)">✕ Réinitialiser</button>';
   }
   html += '</div>';
@@ -6511,11 +6749,16 @@ function renderAgendaHTML() {
         items = allItems.filter(function(a) {
           // Évènements de planif avec 3 animatrices, ou éléments attribués à "Ensemble"
           if (a._isPlanifEvt) return (a._animatrices||[]).length >= 3;
+          var coords = a._coords || a._taskCoords || [];
+          if (coords.length >= 3) return true;
           var owner = a._isJalon ? (a.attribue||'') : a._isTask ? (a._taskOwner||'') : (a.owner||'');
           return owner === 'Ensemble';
         });
       } else if (_agendaFilter) {
         items = allItems.filter(function(a) {
+          // Une tâche attribuée à deux coordinatrices doit apparaître sur le filtre de CHACUNE
+          var coords = a._coords || a._taskCoords || [];
+          if (coords.indexOf(_agendaFilter) >= 0) return true;
           var owner = a._isJalon ? (a.attribue||'') : a._isTask ? (a._taskOwner||'') : (a.owner||'');
           return owner === _agendaFilter;
         });
@@ -6793,6 +7036,38 @@ function setAgendaFilter(val) {
 }
 
 // Panneau accordéon d'un jour — injecté sous le mois concerné
+// Supprime une tâche directement depuis l'agenda, sans ouvrir sa fiche source.
+// Gère les 4 origines : tâche d'action ACI, de projet, d'évènement hors ACI, de gestion interne.
+// item : { type, actionId?, taskId?, horsAciType?, parentId? }
+function deleteTaskFromAgenda(payloadJson) {
+  var item;
+  try { item = JSON.parse(decodeURIComponent(payloadJson)); } catch(e) { return; }
+  if (!confirm('Supprimer cette tâche ? (elle sera retirée de sa fiche d\'origine)')) return;
+  var done = false;
+  if (item.type === 'task' && item.actionId && item.taskId) {
+    var a = (state.actions||[]).find(function(x){ return x.id === item.actionId; });
+    if (a && a.tasks) { a.tasks = a.tasks.filter(function(t){ return t.id !== item.taskId; }); a.updatedAt = Date.now(); done = true; }
+  } else if (item.type === 'horsaci' && item.taskId) {
+    if (item.horsAciType === 'projet') {
+      var p = (state.projets||[]).find(function(x){ return x.id === item.parentId; });
+      if (p && p.tasks) { p.tasks = p.tasks.filter(function(t){ return t.id !== item.taskId; }); p.updatedAt = Date.now(); done = true; }
+    } else if (item.horsAciType === 'evenement') {
+      var e = (state.evenements||[]).find(function(x){ return x.id === item.parentId; });
+      if (e && e.tasks) { e.tasks = e.tasks.filter(function(t){ return t.id !== item.taskId; }); e.updatedAt = Date.now(); done = true; }
+    } else if (item.horsAciType === 'orga') {
+      var c = (state.orga_interne||[]).find(function(x){ return x.id === item.parentId; });
+      if (c && c.tasks) { c.tasks = c.tasks.filter(function(t){ return t.id !== item.taskId; }); c.updatedAt = Date.now(); done = true; }
+    }
+  }
+  if (done) {
+    saveState();
+    if (typeof renderPlanningInner === 'function') renderPlanningInner();
+    toast('Tâche supprimée');
+  } else {
+    toast('⚠️ Suppression impossible');
+  }
+}
+
 function openDayPanel(dateStr) {
   // Identifier le mois (0-11) depuis la date
   var parts = dateStr.split('-');
@@ -6928,12 +7203,26 @@ function openDayPanel(dateStr) {
       if (item.note && item.note.trim()) {
         html += '<span style="flex:1;display:flex;flex-direction:column;gap:1px">'
           + '<span style="font-size:13px;color:var(--ink);' + (itemDone ? 'text-decoration:line-through' : '') + '">' + escapeHtml(item.label) + '</span>'
-          + '<span style="font-size:10.5px;color:var(--ink-mute);display:flex;gap:4px"><span>📝</span><span>' + escapeHtml(item.note) + '</span></span>'
+          + '<span style="font-size:10.5px;color:var(--ink-mute);display:flex;gap:4px"><span>📝</span><span style="white-space:pre-wrap">' + escapeHtml(item.note) + '</span></span>'
           + '</span>';
       } else {
         html += '<span style="flex:1;font-size:13px;color:var(--ink);' + (itemDone ? 'text-decoration:line-through' : '') + '">' + escapeHtml(item.label) + '</span>';
       }
       if (visioBtn) html += visioBtn;
+      // Bouton poubelle : uniquement pour les vraies tâches (pas les évènements/jalons/actions racines)
+      var isDeletableTask = (item.type === 'task') || (item.type === 'horsaci' && item.taskId);
+      if (isDeletableTask) {
+        var delPayload = encodeURIComponent(JSON.stringify({
+          type: item.type, actionId: item.actionId || '', taskId: item.taskId || '',
+          horsAciType: item.horsAciType || '', parentId: item.parentId || ''
+        }));
+        html += '<button onclick="event.stopPropagation();deleteTaskFromAgenda(\'' + delPayload + '\')" '
+          + 'title="Supprimer cette tâche" '
+          + 'style="background:none;border:none;cursor:pointer;color:var(--ink-light);font-size:14px;'
+          + 'padding:2px 4px;border-radius:4px;flex-shrink:0" '
+          + 'onmouseenter="this.style.color=\'var(--danger)\';this.style.background=\'var(--danger-soft, #fde8e8)\'" '
+          + 'onmouseleave="this.style.color=\'var(--ink-light)\';this.style.background=\'none\'">🗑</button>';
+      }
       html += '<span style="font-size:11px;color:var(--ink-mute)">›</span>';
       html += '</div>';
     });
@@ -8139,7 +8428,7 @@ function saveProjet() {
     const label = row.querySelector('.plnk-label').value.trim();
     const url = row.querySelector('.plnk-url').value.trim();
     if (!label && !url) return;
-    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url, fileId: row.dataset.fileId || '' });
+    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url, fileId: row.dataset.fileId || '', driveId: row.dataset.driveId || '' });
   });
 
   const data = {
@@ -8243,12 +8532,14 @@ function appendProjetLinkRow(lk) {
   const div = document.createElement('div'); div.className = 'plnk-row';
   div.dataset.linkId = lk ? lk.id : makeId('lnk');
   if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
+  if (lk && lk.driveId) div.dataset.driveId = lk.driveId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+  var _did = (lk && lk.driveId) ? lk.driveId : '';
   var pvBtn = (lk && (lk.fileId || lk.url))
-    ? '<button type="button" class="btn btn-sm" title="Aperçu (ouvrir sans télécharger)" onclick="spPreviewFile(\'' + (lk.fileId||'') + '\',\'' + escapeHtml((lk.url||'').replace(/\'/g,'')) + '\')" style="padding:4px 8px">👁</button>'
+    ? '<button type="button" class="btn btn-sm" title="Aperçu (ouvrir sans télécharger)" onclick="spPreviewFile(\'' + (lk.fileId||'') + '\',\'' + escapeHtml((lk.url||'').replace(/\'/g,'')) + '\',\'' + _did + '\')" style="padding:4px 8px">👁</button>'
     : '';
   var dlBtn = (lk && lk.fileId)
-    ? '<button type="button" class="btn btn-sm" title="Télécharger" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\')" style="padding:4px 8px">⬇️</button>'
+    ? '<button type="button" class="btn btn-sm" title="Télécharger" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\',\'' + _did + '\')" style="padding:4px 8px">⬇️</button>'
     : '';
   div.innerHTML = `
     <input class="plnk-label" type="text" value="${escapeHtml(lk?lk.label:'')}" placeholder="Nom du document…"
@@ -8379,6 +8670,7 @@ function openEvenementModal(id) {
     document.getElementById('e-date').value = e.date || '';
     document.getElementById('e-heure').value = e.heure || '';
     var evVisioEl = document.getElementById('e-visio'); if (evVisioEl) evVisioEl.value = e.visio || '';
+    toggleVisioBtn('e-visio','e-visio-join');
     document.getElementById('e-lieu').value = e.lieu || '';
     selR.value = e.responsable || '';
     document.getElementById('e-participants').value = e.participants || '';
@@ -8432,7 +8724,7 @@ function saveEvenement() {
     const label = row.querySelector('.elnk-label').value.trim();
     const url = row.querySelector('.elnk-url').value.trim();
     if (!label && !url) return;
-    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url, fileId: row.dataset.fileId || '' });
+    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url, fileId: row.dataset.fileId || '', driveId: row.dataset.driveId || '' });
   });
 
   // Réunions et tâches
@@ -8545,12 +8837,14 @@ function appendEvenementLinkRow(lk) {
   const div = document.createElement('div'); div.className = 'elnk-row';
   div.dataset.linkId = lk ? lk.id : makeId('lnk');
   if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
+  if (lk && lk.driveId) div.dataset.driveId = lk.driveId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+  var _did = (lk && lk.driveId) ? lk.driveId : '';
   var pvBtn = (lk && (lk.fileId || lk.url))
-    ? '<button type="button" class="btn btn-sm" title="Aperçu (ouvrir sans télécharger)" onclick="spPreviewFile(\'' + (lk.fileId||'') + '\',\'' + escapeHtml((lk.url||'').replace(/\'/g,'')) + '\')" style="padding:4px 8px">👁</button>'
+    ? '<button type="button" class="btn btn-sm" title="Aperçu (ouvrir sans télécharger)" onclick="spPreviewFile(\'' + (lk.fileId||'') + '\',\'' + escapeHtml((lk.url||'').replace(/\'/g,'')) + '\',\'' + _did + '\')" style="padding:4px 8px">👁</button>'
     : '';
   var dlBtn = (lk && lk.fileId)
-    ? '<button type="button" class="btn btn-sm" title="Télécharger" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\')" style="padding:4px 8px">⬇️</button>'
+    ? '<button type="button" class="btn btn-sm" title="Télécharger" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\',\'' + _did + '\')" style="padding:4px 8px">⬇️</button>'
     : '';
   div.innerHTML = `
     <input class="elnk-label" type="text" value="${escapeHtml(lk?lk.label:'')}" placeholder="Nom du document…"
@@ -8647,7 +8941,7 @@ function renderOrgaTasksHTML(tasks, catId) {
     html += '<td class="center"><input type="checkbox" ' + (t.done?'checked':'') + ' onchange="toggleOrgaTask(\'' + catId + '\',\'' + t.id + '\',this.checked)" style="width:15px;height:15px;cursor:pointer"/></td>';
     html += '<td><span ' + (t.done?'style="text-decoration:line-through;cursor:pointer"':'style="cursor:pointer;color:var(--teal-d)"') + ' onclick="openOrgaTaskEdit(\'' + catId + '\',\'' + t.id + '\')" title="Modifier la tâche">' + escapeHtml(t.label) + '</span>'
       + (t.doneAt?'<div style="font-size:10px;color:var(--ok)">✓ '+fmt.date(t.doneAt)+'</div>':'')
-      + (t.note && t.note.trim() ? '<div style="font-size:10.5px;color:var(--ink-mute);margin-top:2px;display:flex;gap:4px"><span>📝</span><span>'+escapeHtml(t.note)+'</span></div>' : '')
+      + (t.note && t.note.trim() ? '<div style="font-size:10.5px;color:var(--ink-mute);margin-top:2px;display:flex;gap:4px"><span>📝</span><span style="white-space:pre-wrap">'+escapeHtml(t.note)+'</span></div>' : '')
       + '</td>';
     html += '<td>' + (t.owner && ownerC ? '<span style="padding:2px 8px;border-radius:9px;font-size:10.5px;font-weight:700;background:'+ownerC.bg+';color:'+ownerC.text+'">'+escapeHtml(t.owner)+'</span>' : '<span style="color:var(--ink-light)">—</span>') + '</td>';
     html += '<td>' + (t.due ? '<span class="tag tag-' + urgencyToTag(lvl) + '" style="font-size:10.5px">'+fmt.date(t.due)+'</span>' : '<span style="color:var(--ink-light)">—</span>') + '</td>';
@@ -8655,6 +8949,227 @@ function renderOrgaTasksHTML(tasks, catId) {
     html += '</tr>';
   });
   html += '</tbody></table>';
+  return html;
+}
+
+/* ============================================================
+   RÉUNION D'ÉQUIPE (section spéciale de la Gestion interne)
+   - points à aborder (priorité 🔴 urgent / 🟠 moyen terme / 🟢 long terme)
+   - présents (3 coordinatrices + Hermann + Adelette)
+   - clôture de réunion → points abordés archivés, non abordés reportés
+   ============================================================ */
+var RE_PRIORITES = [
+  { id: 'urgent',  label: 'Urgent',      emoji: '🔴', bg: '#fde8e8', color: '#b91c1c', border: '#f5b5b5', ordre: 0 },
+  { id: 'moyen',   label: 'Moyen terme', emoji: '🟠', bg: '#fef3e2', color: '#b45309', border: '#f5d5a5', ordre: 1 },
+  { id: 'long',    label: 'Long terme',  emoji: '🟢', bg: '#e6f4ea', color: '#15803d', border: '#b5e5c5', ordre: 2 }
+];
+var RE_PERSONNES = ['Yayi', 'Yoanna', 'Margaux', 'Hermann', 'Adelette'];
+
+function getReunionEquipe() {
+  if (!state.reunionEquipe) state.reunionEquipe = { points: [], presents: [], history: [] };
+  if (!Array.isArray(state.reunionEquipe.points)) state.reunionEquipe.points = [];
+  if (!Array.isArray(state.reunionEquipe.presents)) state.reunionEquipe.presents = [];
+  if (!Array.isArray(state.reunionEquipe.history)) state.reunionEquipe.history = [];
+  return state.reunionEquipe;
+}
+
+function rePrioInfo(id) {
+  return RE_PRIORITES.find(function(p){ return p.id === id; }) || RE_PRIORITES[1];
+}
+
+// Ajoute un point à aborder
+function addReunionPoint() {
+  var inp = document.getElementById('re-new-label');
+  var sel = document.getElementById('re-new-priorite');
+  var who = document.getElementById('re-new-proposeur');
+  if (!inp) return;
+  var label = inp.value.trim();
+  if (!label) { inp.focus(); return; }
+  var re = getReunionEquipe();
+  re.points.push({
+    id: makeId('rept'),
+    label: label,
+    priorite: sel ? sel.value : 'moyen',
+    proposeur: who ? who.value : '',
+    date: new Date().toISOString().slice(0,10),
+    aborde: false,
+    updatedAt: Date.now()
+  });
+  saveState();
+  inp.value = '';
+  renderOrgaInterne();
+  setTimeout(function(){ var el = document.getElementById('re-new-label'); if (el) el.focus(); }, 50);
+}
+
+// Coche/décoche "abordé" pour un point
+function toggleReunionPointAborde(id, checked) {
+  var re = getReunionEquipe();
+  var p = re.points.find(function(x){ return x.id === id; });
+  if (!p) return;
+  p.aborde = checked;
+  p.updatedAt = Date.now();
+  saveState();
+  renderOrgaInterne();
+}
+
+// Change la priorité d'un point
+function setReunionPointPriorite(id, prio) {
+  var re = getReunionEquipe();
+  var p = re.points.find(function(x){ return x.id === id; });
+  if (!p) return;
+  p.priorite = prio;
+  p.updatedAt = Date.now();
+  saveState();
+  renderOrgaInterne();
+}
+
+// Supprime un point
+function deleteReunionPoint(id) {
+  if (!confirm('Supprimer ce point ?')) return;
+  var re = getReunionEquipe();
+  re.points = re.points.filter(function(x){ return x.id !== id; });
+  saveState();
+  renderOrgaInterne();
+}
+
+// Coche/décoche un présent
+function toggleReunionPresent(nom) {
+  var re = getReunionEquipe();
+  var i = re.presents.indexOf(nom);
+  if (i === -1) re.presents.push(nom); else re.presents.splice(i, 1);
+  saveState();
+  renderOrgaInterne();
+}
+
+// Clôture la réunion : archive les points abordés dans l'historique (avec présents et date),
+// reporte automatiquement les points non abordés vers la prochaine réunion, réinitialise les présents.
+function cloreReunionEquipe() {
+  var re = getReunionEquipe();
+  var abordes = re.points.filter(function(p){ return p.aborde; });
+  if (!abordes.length && !confirm('Aucun point n\'est coché comme abordé. Clôturer quand même la réunion ?')) return;
+  if (abordes.length && !confirm('Clôturer la réunion ? Les ' + abordes.length + ' point(s) abordé(s) seront archivés, et les points non abordés reportés à la prochaine réunion.')) return;
+  // Créer une entrée d'historique
+  re.history.unshift({
+    id: makeId('rehist'),
+    date: new Date().toISOString().slice(0,10),
+    presents: (re.presents||[]).slice(),
+    points: abordes.map(function(p){ return { id: p.id, label: p.label, priorite: p.priorite, proposeur: p.proposeur, date: p.date }; }),
+    updatedAt: Date.now()
+  });
+  // Retirer les points abordés (les non abordés restent → report automatique)
+  re.points = re.points.filter(function(p){ return !p.aborde; });
+  // Réinitialiser les présents
+  re.presents = [];
+  saveState();
+  renderOrgaInterne();
+  toast('✅ Réunion clôturée — points non abordés reportés');
+}
+
+// Affiche / masque l'historique
+var _reHistoryOpen = false;
+function toggleReunionHistory() { _reHistoryOpen = !_reHistoryOpen; renderOrgaInterne(); }
+
+// Rendu de la section Réunion d'équipe
+function renderReunionEquipeHTML() {
+  var re = getReunionEquipe();
+  var html = '';
+  html += '<div class="card mb-12" style="border-left:4px solid var(--m-qual, #7c5cbf)">';
+  html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap">';
+  html += '<h3 style="font-family:\'Fraunces\',serif;font-size:17px;font-weight:500;flex:1;margin:0">🗣 Réunion d\'équipe</h3>';
+  html += '<span style="font-size:11.5px;color:var(--ink-mute)">' + re.points.length + ' point' + (re.points.length>1?'s':'') + ' à aborder</span>';
+  html += '</div>';
+  html += '<p style="font-size:12px;color:var(--ink-mute);margin:0 0 12px">Notez au fil de l\'eau les points à aborder, classez-les par priorité. À la clôture, les points abordés sont archivés et les non abordés reportés automatiquement.</p>';
+
+  // --- Présents ---
+  html += '<div style="margin-bottom:12px">';
+  html += '<div style="font-size:11.5px;font-weight:600;color:var(--ink-soft);margin-bottom:5px">👥 Présents à la réunion</div>';
+  html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+  RE_PERSONNES.forEach(function(nom){
+    var on = (re.presents||[]).indexOf(nom) >= 0;
+    var col = collabColor(nom);
+    html += '<span onclick="toggleReunionPresent(\'' + nom + '\')" style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:16px;cursor:pointer;user-select:none;'
+      + 'border:2px solid ' + (on ? (col.bg!=='var(--bg-soft)'?col.bg:'var(--teal)') : 'var(--line)') + ';'
+      + 'background:' + (on ? (col.bg!=='var(--bg-soft)'?col.bg:'var(--teal-p)') : 'var(--surface)') + ';'
+      + 'color:' + (on ? (col.text||'var(--teal-d)') : 'var(--ink-soft)') + ';font-size:12px;font-weight:' + (on?'600':'400') + '">'
+      + (on ? '✓ ' : '') + nom + '</span>';
+  });
+  html += '</div></div>';
+
+  // --- Formulaire d'ajout ---
+  html += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:10px;background:var(--bg-soft);border-radius:8px">';
+  html += '<input type="text" id="re-new-label" placeholder="Nouveau point à aborder…" style="flex:1;min-width:180px;padding:7px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;background:var(--surface)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addReunionPoint();}" />';
+  html += '<select id="re-new-proposeur" style="padding:7px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:var(--surface)">';
+  html += '<option value="">— Proposé par —</option>';
+  ['Yayi','Yoanna','Margaux'].forEach(function(n){ html += '<option value="' + n + '">' + n + '</option>'; });
+  html += '</select>';
+  html += '<select id="re-new-priorite" style="padding:7px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:var(--surface)">';
+  RE_PRIORITES.forEach(function(p){ html += '<option value="' + p.id + '"' + (p.id==='moyen'?' selected':'') + '>' + p.emoji + ' ' + p.label + '</option>'; });
+  html += '</select>';
+  html += '<button class="btn btn-primary btn-sm" onclick="addReunionPoint()">＋ Ajouter</button>';
+  html += '</div>';
+
+  // --- Liste des points, triés par priorité ---
+  if (!re.points.length) {
+    html += '<div style="font-size:12.5px;color:var(--ink-mute);font-style:italic;padding:6px 0">Aucun point à aborder pour l\'instant.</div>';
+  } else {
+    var sorted = re.points.slice().sort(function(a,b){
+      return rePrioInfo(a.priorite).ordre - rePrioInfo(b.priorite).ordre;
+    });
+    html += '<div style="display:flex;flex-direction:column;gap:6px">';
+    sorted.forEach(function(p){
+      var pi = rePrioInfo(p.priorite);
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;border:1px solid ' + pi.border + ';background:' + pi.bg + '">';
+      html += '<input type="checkbox" ' + (p.aborde?'checked':'') + ' onchange="toggleReunionPointAborde(\'' + p.id + '\',this.checked)" title="Marquer comme abordé" style="width:16px;height:16px;cursor:pointer;flex-shrink:0;accent-color:' + pi.color + '" />';
+      html += '<span style="flex:1;font-size:13px;color:var(--ink);' + (p.aborde?'text-decoration:line-through;opacity:.6':'') + '">' + escapeHtml(p.label);
+      if (p.proposeur) html += ' <span style="font-size:10.5px;color:var(--ink-mute)">— ' + escapeHtml(p.proposeur) + '</span>';
+      html += '</span>';
+      // Sélecteur de priorité inline
+      html += '<select onchange="setReunionPointPriorite(\'' + p.id + '\',this.value)" style="padding:3px 6px;border:1px solid ' + pi.border + ';border-radius:5px;font-size:11px;background:var(--surface);color:' + pi.color + ';font-weight:600">';
+      RE_PRIORITES.forEach(function(pr){ html += '<option value="' + pr.id + '"' + (pr.id===p.priorite?' selected':'') + '>' + pr.emoji + ' ' + pr.label + '</option>'; });
+      html += '</select>';
+      html += '<button onclick="deleteReunionPoint(\'' + p.id + '\')" title="Supprimer" style="background:none;border:none;cursor:pointer;color:var(--ink-light);font-size:14px;flex-shrink:0">×</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+    // Bouton clôturer
+    html += '<div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">';
+    html += '<button class="btn btn-sm" onclick="cloreReunionEquipe()" style="background:var(--ok,#2c7a4b);color:#fff;border-color:var(--ok,#2c7a4b);font-weight:600">✔ Réunion clôturée</button>';
+    html += '<span style="font-size:11px;color:var(--ink-mute)">Archive les points cochés, reporte les autres</span>';
+    html += '</div>';
+  }
+
+  // --- Historique ---
+  html += '<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">';
+  html += '<button onclick="toggleReunionHistory()" style="background:none;border:none;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--teal-d);padding:0">'
+    + (_reHistoryOpen ? '▼' : '▶') + ' 🗄 Points déjà abordés (' + re.history.length + ' réunion' + (re.history.length>1?'s':'') + ')</button>';
+  if (_reHistoryOpen) {
+    if (!re.history.length) {
+      html += '<div style="font-size:12px;color:var(--ink-mute);font-style:italic;margin-top:8px">Aucune réunion clôturée pour l\'instant.</div>';
+    } else {
+      html += '<div style="margin-top:8px;display:flex;flex-direction:column;gap:10px">';
+      re.history.forEach(function(h){
+        html += '<div style="padding:10px;background:var(--bg-soft);border-radius:8px">';
+        html += '<div style="font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:4px">📅 Réunion du ' + fmt.date(h.date);
+        if (h.presents && h.presents.length) html += ' <span style="font-weight:400;color:var(--ink-mute)">— Présents : ' + h.presents.map(escapeHtml).join(', ') + '</span>';
+        html += '</div>';
+        if (h.points && h.points.length) {
+          html += '<ul style="margin:4px 0 0;padding-left:20px">';
+          h.points.forEach(function(p){
+            var pi = rePrioInfo(p.priorite);
+            html += '<li style="font-size:12px;color:var(--ink);margin-bottom:2px">' + pi.emoji + ' ' + escapeHtml(p.label) + (p.proposeur ? ' <span style="font-size:10.5px;color:var(--ink-mute)">(' + escapeHtml(p.proposeur) + ')</span>' : '') + '</li>';
+          });
+          html += '</ul>';
+        } else {
+          html += '<div style="font-size:11.5px;color:var(--ink-mute);font-style:italic">Aucun point abordé.</div>';
+        }
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+  }
+  html += '</div>';
+
+  html += '</div>';
   return html;
 }
 
@@ -8673,6 +9188,9 @@ function renderOrgaInterne() {
       <button class="btn btn-primary" onclick="addOrgaCategorie()">＋ Nouvelle catégorie</button>
     </div>
   `;
+
+  // Section spéciale : Réunion d'équipe (toujours en haut)
+  html += renderReunionEquipeHTML();
 
   if (!state.orga_interne.length) {
     html += '<div class="empty-state card"><h3>Aucune catégorie</h3><p>Cliquez sur « ＋ Nouvelle catégorie » pour commencer.</p></div>';
@@ -8806,6 +9324,7 @@ function saveOrgaTaskModal() {
     // Édition d'une tâche existante
     var t = cat.tasks.find(function(x){ return x.id === taskId; });
     if (t) { t.label = label; t.owner = owner; t.due = due; t.note = note; }
+    cat.updatedAt = Date.now();
     saveState();
     closeOrgaTaskModal();
     renderOrgaInterne();
@@ -8824,6 +9343,7 @@ function saveOrgaTaskModal() {
     doneAt: '',
     createdAt: Date.now()
   });
+  cat.updatedAt = Date.now();
   saveState();
   closeOrgaTaskModal();
   renderOrgaInterne();
@@ -8837,6 +9357,7 @@ function toggleOrgaTask(catId, taskId, checked) {
   if (!t) return;
   t.done = checked;
   t.doneAt = checked ? new Date().toISOString().slice(0,10) : '';
+  cat.updatedAt = Date.now();
   saveState(); renderOrgaInterne();
   toast(checked ? '✅ Tâche réalisée' : 'Tâche remise à faire');
 }
@@ -8846,6 +9367,7 @@ function deleteOrgaTask(catId, taskId) {
   var cat = (state.orga_interne||[]).find(function(c){ return c.id === catId; });
   if (!cat) return;
   cat.tasks = (cat.tasks||[]).filter(function(t){ return t.id !== taskId; });
+  cat.updatedAt = Date.now();
   saveState(); renderOrgaInterne();
   toast('Tâche supprimée');
 }
@@ -9331,6 +9853,7 @@ function openJalonModal(dateStr, jalonId) {
     document.getElementById('j-deadline').value = j.date || '';
     var jHeureEl = document.getElementById('j-heure'); if (jHeureEl) jHeureEl.value = j.heure || '';
     var jVisioEl = document.getElementById('j-visio'); if (jVisioEl) jVisioEl.value = j.visio || '';
+    toggleVisioBtn('j-visio','j-visio-join');
     var radios = document.querySelectorAll('input[name="j-type"]');
     radios.forEach(function(r){ r.checked = (r.value === (j.type || 'normal')); });
     // Attribution multiple : reconstruire la liste des coords
@@ -9348,6 +9871,7 @@ function openJalonModal(dateStr, jalonId) {
     document.getElementById('j-deadline').value = dateStr || '';
     var jHeureEl2 = document.getElementById('j-heure'); if (jHeureEl2) jHeureEl2.value = '';
     var jVisioEl2 = document.getElementById('j-visio'); if (jVisioEl2) jVisioEl2.value = '';
+    toggleVisioBtn('j-visio','j-visio-join');
     var radios2 = document.querySelectorAll('input[name="j-type"]');
     radios2.forEach(function(r){ r.checked = (r.value === 'normal'); });
     var attrChecks2 = document.querySelectorAll('input[name="j-attribue"]');
@@ -10397,7 +10921,10 @@ function renderReunionBlocks() {
         + '</div></div>';
       // Lien visio
       html += '<div class="form-field" style="margin-bottom:8px"><label>📹 Lien visio <small style="font-weight:400;color:var(--ink-mute)">(Teams, Zoom, Meet…)</small></label>'
-        + '<input type="url" id="reu-visio-' + i + '" value="' + escapeHtml(r.visio || '') + '" placeholder="https://teams.microsoft.com/..." onblur="syncReunionBlocksFromDOM();" /></div>';
+        + '<div style="display:flex;gap:6px;align-items:center">'
+        + '<input type="url" id="reu-visio-' + i + '" value="' + escapeHtml(r.visio || '') + '" placeholder="https://teams.microsoft.com/..." style="flex:1" oninput="toggleVisioBtn(\'reu-visio-' + i + '\',\'reu-visio-join-' + i + '\')" onblur="syncReunionBlocksFromDOM();" />'
+        + '<button type="button" id="reu-visio-join-' + i + '" onclick="openVisioFromField(\'reu-visio-' + i + '\')" style="' + (r.visio ? 'display:inline-flex' : 'display:none') + ';align-items:center;gap:4px;padding:6px 12px;border:1px solid var(--teal);border-radius:6px;background:var(--teal);color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">📹 Rejoindre</button>'
+        + '</div></div>';
       // Note
       html += '<div class="form-field" style="margin-bottom:8px"><label>Note</label>'
         + '<input type="text" id="reu-note-' + i + '" value="' + escapeHtml(r.note || '') + '" placeholder="Précision, ordre du jour, lien visio…" onblur="syncReunionBlocksFromDOM();" /></div>';
@@ -10579,7 +11106,10 @@ function renderProjetEvtBlocks() {
     html += '<div class="form-field row-full"><label>Lieu <small style="font-weight:400;color:var(--ink-mute)">(optionnel)</small></label>'
       + '<input type="text" id="pevt-lieu-' + i + '" value="' + escapeHtml(ev.lieu||'') + '" /></div>';
     html += '<div class="form-field row-full"><label>📹 Lien visio <small style="font-weight:400;color:var(--ink-mute)">(Teams, Zoom, Meet…)</small></label>'
-      + '<input type="url" id="pevt-visio-' + i + '" value="' + escapeHtml(ev.visio||'') + '" placeholder="https://teams.microsoft.com/..." onblur="syncProjetEvtBlocksFromDOM();" /></div>';
+      + '<div style="display:flex;gap:6px;align-items:center">'
+      + '<input type="url" id="pevt-visio-' + i + '" value="' + escapeHtml(ev.visio||'') + '" placeholder="https://teams.microsoft.com/..." style="flex:1" oninput="toggleVisioBtn(\'pevt-visio-' + i + '\',\'pevt-visio-join-' + i + '\')" onblur="syncProjetEvtBlocksFromDOM();" />'
+      + '<button type="button" id="pevt-visio-join-' + i + '" onclick="openVisioFromField(\'pevt-visio-' + i + '\')" style="' + (ev.visio ? 'display:inline-flex' : 'display:none') + ';align-items:center;gap:4px;padding:6px 12px;border:1px solid var(--teal);border-radius:6px;background:var(--teal);color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">📹 Rejoindre</button>'
+      + '</div></div>';
     html += '</div>';
     // Animatrices
     html += '<div style="margin-top:8px"><label style="font-size:12px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:5px">Animatrices de l\'évènement</label><div style="display:flex;gap:8px;flex-wrap:wrap">';
@@ -10644,7 +11174,7 @@ function renderProjetEvtTasksHTML(ev, blockIdx) {
     html += '<div class="evt-task-row" data-task-id="' + t.id + '" style="display:flex;gap:6px;align-items:center;margin-bottom:5px;flex-wrap:wrap">'
       + '<input type="checkbox" class="evt-task-done" ' + (t.done ? 'checked' : '') + ' onchange="syncProjetEvtBlocksFromDOM();renderProjetEvtBlocks();" style="width:15px;height:15px;cursor:pointer;accent-color:var(--teal)" />'
       + '<input type="text" class="evt-task-label" value="' + escapeHtml(t.label||'') + '" placeholder="Intitulé de la tâche" style="flex:1;min-width:140px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;' + (t.done ? 'text-decoration:line-through;color:var(--ink-mute)' : '') + '" />'
-      + '<select class="evt-task-owner" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px">';
+      + '<select class="evt-task-owner" onchange="markEvtTaskOwnerManual(this,\'' + t.id + '\')" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px">';
     ANIM.forEach(function(name) { html += '<option value="' + name + '"' + ((t.owner||'') === name ? ' selected' : '') + '>' + (name || '— Qui ? —') + '</option>'; });
     html += '</select><input type="date" class="evt-task-due" value="' + escapeHtml(t.due||'') + '" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px" />'
       + '<button type="button" onclick="deleteProjetEvtTask(' + blockIdx + ',\'' + t.id + '\')" style="background:none;border:none;cursor:pointer;color:var(--ink-light);font-size:14px">×</button></div>';
@@ -10667,13 +11197,13 @@ function renderProjetEvtChecklistHTML(ev, blockIdx) {
 }
 
 function toggleProjetEvtOpen(idx) { syncProjetEvtBlocksFromDOM(); if (_projetEvtBlocks[idx]) _projetEvtBlocks[idx]._open = (_projetEvtBlocks[idx]._open === false); renderProjetEvtBlocks(); }
-function addProjetEvtTask(idx) { syncProjetEvtBlocksFromDOM(); var ev = _projetEvtBlocks[idx]; if (!ev) return; if (!ev.tasks) ev.tasks = []; ev.tasks.push({ id: makeId('task'), label:'', owner:'', due:'', done:false, doneAt:'' }); renderProjetEvtBlocks(); }
+function addProjetEvtTask(idx) { syncProjetEvtBlocksFromDOM(); var ev = _projetEvtBlocks[idx]; if (!ev) return; if (!ev.tasks) ev.tasks = []; ev.tasks.push({ id: makeId('task'), label:'', owner:'', due:'', done:false, doneAt:'' }); autoAssignEvtTasks(ev); renderProjetEvtBlocks(); }
 function deleteProjetEvtTask(idx, tid) { syncProjetEvtBlocksFromDOM(); var ev = _projetEvtBlocks[idx]; if (!ev||!ev.tasks) return; ev.tasks = ev.tasks.filter(function(t){ return t.id !== tid; }); renderProjetEvtBlocks(); }
 function toggleProjetEvtChecklistOpen(idx) { syncProjetEvtBlocksFromDOM(); if (_projetEvtBlocks[idx]) _projetEvtBlocks[idx]._checklistOpen = !_projetEvtBlocks[idx]._checklistOpen; renderProjetEvtBlocks(); }
 function addProjetEvtChecklistItem(idx) { var inp = document.getElementById('pevt-checklist-input-' + idx); if (!inp) return; var label = inp.value.trim(); if (!label) { inp.focus(); return; } syncProjetEvtBlocksFromDOM(); var ev = _projetEvtBlocks[idx]; if (!ev) return; if (!ev.checklistPrep) ev.checklistPrep = []; ev.checklistPrep.push({ label: label, done: false }); ev._checklistOpen = true; renderProjetEvtBlocks(); }
 function toggleProjetEvtChecklistItem(idx, ci, checked) { syncProjetEvtBlocksFromDOM(); var ev = _projetEvtBlocks[idx]; if (!ev||!ev.checklistPrep||!ev.checklistPrep[ci]) return; ev.checklistPrep[ci].done = checked; ev._checklistOpen = true; renderProjetEvtBlocks(); }
 function deleteProjetEvtChecklistItem(idx, ci) { syncProjetEvtBlocksFromDOM(); var ev = _projetEvtBlocks[idx]; if (!ev||!ev.checklistPrep) return; ev.checklistPrep.splice(ci, 1); ev._checklistOpen = true; renderProjetEvtBlocks(); }
-function toggleProjetEvtAnim(idx, name) { syncProjetEvtBlocksFromDOM(); var ev = _projetEvtBlocks[idx]; if (!ev) return; if (!ev.animatrices) ev.animatrices = []; var i = ev.animatrices.indexOf(name); if (i === -1) ev.animatrices.push(name); else ev.animatrices.splice(i, 1); renderProjetEvtBlocks(); }
+function toggleProjetEvtAnim(idx, name) { syncProjetEvtBlocksFromDOM(); var ev = _projetEvtBlocks[idx]; if (!ev) return; if (!ev.animatrices) ev.animatrices = []; var i = ev.animatrices.indexOf(name); if (i === -1) ev.animatrices.push(name); else ev.animatrices.splice(i, 1); autoAssignEvtTasks(ev); renderProjetEvtBlocks(); }
 function toggleProjetEvtJourneePrev(idx, checked) { syncProjetEvtBlocksFromDOM(); if (_projetEvtBlocks[idx]) _projetEvtBlocks[idx].journeePrev = checked; renderProjetEvtBlocks(); }
 function toggleProjetEvtPrevTheme(idx, themeId) { syncProjetEvtBlocksFromDOM(); var ev = _projetEvtBlocks[idx]; if (!ev) return; if (!ev.prevThemes) ev.prevThemes = []; if (!ev.prevActionIds) ev.prevActionIds = []; var i = ev.prevThemes.indexOf(themeId); if (i === -1) ev.prevThemes.push(themeId); else { ev.prevThemes.splice(i, 1); var ids = actionsForPrevTheme(themeId).map(function(a){ return a.id; }); ev.prevActionIds = ev.prevActionIds.filter(function(id){ return ids.indexOf(id) === -1; }); } renderProjetEvtBlocks(); }
 function toggleProjetEvtPrevAction(idx, actionId, checked) { syncProjetEvtBlocksFromDOM(); var ev = _projetEvtBlocks[idx]; if (!ev) return; if (!ev.prevActionIds) ev.prevActionIds = []; var i = ev.prevActionIds.indexOf(actionId); if (checked && i === -1) ev.prevActionIds.push(actionId); else if (!checked && i !== -1) ev.prevActionIds.splice(i, 1); renderProjetEvtBlocks(); }
@@ -10835,7 +11365,10 @@ function renderEvtBlocks() {
       + '<input type="text" id="evt-lieu-' + i + '" value="' + escapeHtml(ev.lieu||'') + '" placeholder="Ex. Maison de santé, salle municipale…" /></div>';
     // Lien visio
     html += '<div class="form-field row-full"><label>📹 Lien visio <small style="font-weight:400;color:var(--ink-mute)">(Teams, Zoom, Meet…)</small></label>'
-      + '<input type="url" id="evt-visio-' + i + '" value="' + escapeHtml(ev.visio||'') + '" placeholder="https://teams.microsoft.com/..." onblur="syncEvtBlocksFromDOM();" /></div>';
+      + '<div style="display:flex;gap:6px;align-items:center">'
+      + '<input type="url" id="evt-visio-' + i + '" value="' + escapeHtml(ev.visio||'') + '" placeholder="https://teams.microsoft.com/..." style="flex:1" oninput="toggleVisioBtn(\'evt-visio-' + i + '\',\'evt-visio-join-' + i + '\')" onblur="syncEvtBlocksFromDOM();" />'
+      + '<button type="button" id="evt-visio-join-' + i + '" onclick="openVisioFromField(\'evt-visio-' + i + '\')" style="' + (ev.visio ? 'display:inline-flex' : 'display:none') + ';align-items:center;gap:4px;padding:6px 12px;border:1px solid var(--teal);border-radius:6px;background:var(--teal);color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">📹 Rejoindre</button>'
+      + '</div></div>';
     html += '</div>';
 
     // Animatrices
@@ -10939,7 +11472,7 @@ function renderEvtTasksHTML(ev, blockIdx) {
     html += '<div class="evt-task-row" data-task-id="' + t.id + '" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
       + '<input type="checkbox" class="evt-task-done" ' + (t.done ? 'checked' : '') + ' onchange="syncEvtBlocksFromDOM();renderEvtBlocks();" style="width:15px;height:15px;cursor:pointer;accent-color:var(--teal)" />'
       + '<input type="text" class="evt-task-label" value="' + escapeHtml(t.label||'') + '" placeholder="Intitulé de la tâche" style="flex:1;min-width:140px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;' + (t.done ? 'text-decoration:line-through;color:var(--ink-mute)' : '') + '" />'
-      + '<select class="evt-task-owner" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px">';
+      + '<select class="evt-task-owner" onchange="markEvtTaskOwnerManual(this,\'' + t.id + '\')" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px">';
     ANIM.forEach(function(name) {
       html += '<option value="' + name + '"' + ((t.owner||'') === name ? ' selected' : '') + '>' + (name || '— Qui ? —') + '</option>';
     });
@@ -10986,13 +11519,66 @@ function toggleEvtOpen(idx) {
 }
 
 // Tâches d'un évènement
+// Attribution automatique des tâches organisationnelles d'un évènement selon les animatrices :
+// - 1 seule animatrice → toutes les tâches SANS attribution manuelle lui sont attribuées
+//   (y compris les tâches ajoutées après coup) ;
+// - 2 ou 3 animatrices → le champ "qui" reste libre.
+// Ne JAMAIS écraser une attribution déjà saisie manuellement (owner déjà renseigné + _ownerManual).
+function autoAssignEvtTasks(ev) {
+  if (!ev || !ev.tasks) return;
+  var anims = ev.animatrices || [];
+  if (anims.length === 1) {
+    var seule = anims[0];
+    ev.tasks.forEach(function(t){
+      // Attribuer seulement si pas déjà attribué manuellement
+      if (!t._ownerManual && (!t.owner || t.owner.trim() === '')) {
+        t.owner = seule;
+        t._ownerAuto = true;
+      } else if (t._ownerAuto && !t._ownerManual) {
+        // Tâche déjà auto-attribuée à l'ancienne animatrice unique → suit la nouvelle
+        t.owner = seule;
+      }
+    });
+  } else {
+    // 2+ animatrices (ou 0) : libérer les attributions AUTO (pas les manuelles)
+    ev.tasks.forEach(function(t){
+      if (t._ownerAuto && !t._ownerManual) { t.owner = ''; t._ownerAuto = false; }
+    });
+  }
+}
+
 function addEvtTask(idx) {
   syncEvtBlocksFromDOM();
   var ev = _evtBlocks[idx];
   if (!ev) return;
   if (!ev.tasks) ev.tasks = [];
   ev.tasks.push({ id: makeId('task'), label: '', owner: '', due: '', done: false, doneAt: '' });
+  autoAssignEvtTasks(ev);
   renderEvtBlocks();
+}
+
+// Marque une tâche d'évènement comme attribuée MANUELLEMENT (le champ "qui" ne sera plus
+// écrasé par l'attribution automatique). Cherche la tâche dans les deux buffers d'évènements.
+function markEvtTaskOwnerManual(selectEl, taskId) {
+  var val = selectEl ? selectEl.value : '';
+  function apply(blocks){
+    if (!blocks) return false;
+    for (var i=0;i<blocks.length;i++){
+      var ev = blocks[i];
+      if (!ev.tasks) continue;
+      for (var j=0;j<ev.tasks.length;j++){
+        if (ev.tasks[j].id === taskId){
+          ev.tasks[j].owner = val;
+          ev.tasks[j]._ownerManual = (val !== '');   // vide = on relâche le manuel
+          ev.tasks[j]._ownerAuto = false;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  if (typeof _evtBlocks !== 'undefined' && apply(_evtBlocks)) return;
+  if (typeof _projetEvtBlocks !== 'undefined') apply(_projetEvtBlocks);
 }
 
 function deleteEvtTask(idx, taskId) {
@@ -11049,6 +11635,7 @@ function toggleEvtAnim(idx, name) {
   if (!ev.animatrices) ev.animatrices = [];
   var i = ev.animatrices.indexOf(name);
   if (i === -1) ev.animatrices.push(name); else ev.animatrices.splice(i, 1);
+  autoAssignEvtTasks(ev);
   renderEvtBlocks();
 }
 
@@ -11459,7 +12046,7 @@ function saveAction() {
     const label = row.querySelector('.link-label').value.trim();
     const url = row.querySelector('.link-url').value.trim();
     if (!label && !url) return;
-    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url, fileId: row.dataset.fileId || '' });
+    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url, fileId: row.dataset.fileId || '', driveId: row.dataset.driveId || '' });
   });
 
   // Attribution depuis le modal
@@ -11578,12 +12165,14 @@ function appendLinkRow(lk) {
   div.className = 'link-row';
   div.dataset.linkId = lk ? lk.id : makeId('lnk');
   if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
+  if (lk && lk.driveId) div.dataset.driveId = lk.driveId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+  var _did = (lk && lk.driveId) ? lk.driveId : '';
   var pvBtn = (lk && (lk.fileId || lk.url))
-    ? '<button type="button" class="btn btn-sm" title="Aperçu (ouvrir sans télécharger)" onclick="spPreviewFile(\'' + (lk.fileId||'') + '\',\'' + escapeHtml((lk.url||'').replace(/\'/g,'')) + '\')" style="padding:4px 8px">👁</button>'
+    ? '<button type="button" class="btn btn-sm" title="Aperçu (ouvrir sans télécharger)" onclick="spPreviewFile(\'' + (lk.fileId||'') + '\',\'' + escapeHtml((lk.url||'').replace(/\'/g,'')) + '\',\'' + _did + '\')" style="padding:4px 8px">👁</button>'
     : '';
   var dlBtn = (lk && lk.fileId)
-    ? '<button type="button" class="btn btn-sm" title="Télécharger le fichier" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\')" style="padding:4px 8px">⬇️</button>'
+    ? '<button type="button" class="btn btn-sm" title="Télécharger le fichier" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\',\'' + _did + '\')" style="padding:4px 8px">⬇️</button>'
     : '';
   div.innerHTML = `
     <input class="link-label" type="text" value="${escapeHtml(lk?lk.label:'')}" placeholder="Nom du document…"
@@ -11611,10 +12200,10 @@ function makeDropZone(containerId, listId, subfolder, appendFn) {
   if (container.querySelector('.sp-dropzone')) return; // déjà créée
   var dz = document.createElement('div');
   dz.className = 'sp-dropzone';
-  dz.style.cssText = 'border:2px dashed var(--line);border-radius:8px;padding:14px;text-align:center;'
-    + 'font-size:12px;color:var(--ink-mute);cursor:pointer;margin-bottom:8px;transition:all .15s;background:var(--bg-soft)';
-  dz.innerHTML = '📎 Glissez un ou plusieurs documents ici, ou <span style="color:var(--teal-d);font-weight:600;text-decoration:underline">cliquez pour parcourir</span>'
-    + '<div style="font-size:10.5px;margin-top:3px;color:var(--ink-light)">Astuce : maintenez Ctrl (ou ⌘ sur Mac) pour sélectionner plusieurs fichiers · stockés dans SharePoint</div>';
+  dz.style.cssText = 'border:2px dashed var(--line);border-radius:8px;padding:8px 12px;text-align:center;'
+    + 'font-size:12px;color:var(--ink-mute);cursor:pointer;margin-bottom:8px;transition:all .15s;background:var(--bg-soft);'
+    + 'display:flex;align-items:center;justify-content:center;gap:6px;min-height:38px';
+  dz.innerHTML = '📎 Glissez un document depuis votre ordinateur, ou <span style="color:var(--teal-d);font-weight:600;text-decoration:underline">cliquez pour parcourir</span>';
   var input = document.createElement('input');
   input.type = 'file';
   input.multiple = true;
@@ -11786,6 +12375,15 @@ function openDepenseModal(id, presetCat, presetCibleId, presetPoste) {
     if (presetPoste) document.getElementById('d-poste').value = presetPoste;
   }
 
+  // Document justificatif (local)
+  _depenseDoc = null;
+  if (id) {
+    var dDoc = (state.depenses||[]).find(function(x){ return x.id === id; });
+    if (dDoc && dDoc.doc) _depenseDoc = dDoc.doc;
+  }
+  setupBudgetDropzone('d', function(doc){ _depenseDoc = doc; renderBudgetDocCurrent('d', doc); });
+  renderBudgetDocCurrent('d', _depenseDoc);
+
   document.getElementById('depense-modal').classList.add('show');
 }
 
@@ -11899,6 +12497,7 @@ function saveDepense() {
     poste: document.getElementById('d-poste').value,
     fournisseur: document.getElementById('d-fournisseur').value.trim(),
     note: document.getElementById('d-note').value.trim(),
+    doc: _depenseDoc || null,
     createdAt: existingId ? (state.depenses.find(x=>x.id===existingId)||{}).createdAt||Date.now() : Date.now()
   };
 
@@ -12035,6 +12634,71 @@ function exportAllExcel() {
    RECETTES — MODAL & GESTION
    ============================================================ */
 
+// ============================================================
+// DOCUMENT JUSTIFICATIF (Budget) — stockage local en base64
+// Attaché à une recette ou une dépense, sans upload cloud.
+// ============================================================
+var _recetteDoc = null; // { name, type, dataUrl } en cours d'édition
+var _depenseDoc = null;
+
+// Configure une zone de dépôt de document local (glisser-déposer + clic).
+// prefix : 'r' (recette) ou 'd' (dépense). onSet(doc) reçoit le document lu.
+function setupBudgetDropzone(prefix, onSet) {
+  var dz = document.getElementById(prefix + '-doc-dropzone');
+  var input = document.getElementById(prefix + '-doc-input');
+  if (!dz || !input) return;
+  // Éviter les doublons de handlers
+  if (dz._wired) return;
+  dz._wired = true;
+  function readFile(file) {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { toast('⚠️ Document trop volumineux (max 5 Mo)'); return; }
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      onSet({ name: file.name, type: file.type || '', dataUrl: e.target.result });
+    };
+    reader.readAsDataURL(file);
+  }
+  dz.addEventListener('click', function(){ input.click(); });
+  input.addEventListener('change', function(){ if (input.files && input.files[0]) readFile(input.files[0]); input.value=''; });
+  dz.addEventListener('dragover', function(e){ e.preventDefault(); dz.style.borderColor='var(--teal)'; dz.style.background='var(--teal-p)'; });
+  dz.addEventListener('dragleave', function(){ dz.style.borderColor='var(--line)'; dz.style.background='var(--bg-soft)'; });
+  dz.addEventListener('drop', function(e){
+    e.preventDefault(); dz.style.borderColor='var(--line)'; dz.style.background='var(--bg-soft)';
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
+  });
+}
+
+// Affiche le document attaché (nom + boutons ouvrir/retirer)
+function renderBudgetDocCurrent(prefix, doc, onRemove) {
+  var el = document.getElementById(prefix + '-doc-current');
+  if (!el) return;
+  if (!doc) { el.innerHTML = '<span style="font-size:11px;color:var(--ink-light);font-style:italic">Aucun document joint.</span>'; return; }
+  el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg-soft);border-radius:6px;font-size:12px">'
+    + '<span style="flex:1;color:var(--ink)">📄 ' + escapeHtml(doc.name) + '</span>'
+    + '<button type="button" class="btn btn-sm" onclick="openBudgetDoc(\'' + prefix + '\')" title="Ouvrir">👁 Ouvrir</button>'
+    + '<button type="button" class="btn btn-sm btn-danger-text" onclick="' + (prefix==='r'?'removeRecetteDoc':'removeDepenseDoc') + '()">× Retirer</button>'
+    + '</div>';
+}
+
+// Ouvre le document dans un nouvel onglet
+function openBudgetDoc(prefix) {
+  var doc = prefix === 'r' ? _recetteDoc : _depenseDoc;
+  if (!doc || !doc.dataUrl) { toast('Aucun document'); return; }
+  var w = window.open();
+  if (w) {
+    if ((doc.type||'').indexOf('image') === 0) {
+      w.document.write('<img src="' + doc.dataUrl + '" style="max-width:100%"/>');
+    } else {
+      // PDF et autres : lien de téléchargement + tentative d'affichage
+      w.document.write('<iframe src="' + doc.dataUrl + '" style="width:100%;height:100vh;border:none"></iframe>');
+    }
+  }
+}
+
+function removeRecetteDoc() { _recetteDoc = null; renderBudgetDocCurrent('r', null); }
+function removeDepenseDoc() { _depenseDoc = null; renderBudgetDocCurrent('d', null); }
+
 function openRecetteModal(id) {
   document.getElementById('r-id').value = id || '';
   document.getElementById('btn-delete-recette').style.display = id ? '' : 'none';
@@ -12082,6 +12746,14 @@ function openRecetteModal(id) {
 
   onRecetteSourceChange();
   recalcRecetteTotal();
+  // Document justificatif
+  _recetteDoc = null;
+  if (id) {
+    var rDoc = (state.recettes||[]).find(function(x){ return x.id === id; });
+    if (rDoc && rDoc.doc) _recetteDoc = rDoc.doc;
+  }
+  setupBudgetDropzone('r', function(doc){ _recetteDoc = doc; renderBudgetDocCurrent('r', doc); });
+  renderBudgetDocCurrent('r', _recetteDoc);
   document.getElementById('recette-modal').classList.add('show');
 }
 
@@ -12235,7 +12907,9 @@ function saveRecette() {
     montant: 0,
     natures: null,
     ventilation: null,
-    createdAt: Date.now()
+    doc: _recetteDoc || null,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   };
 
   if (src === 'cpam') {
