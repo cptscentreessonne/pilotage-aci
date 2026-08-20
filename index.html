@@ -2173,13 +2173,13 @@ a:hover { text-decoration: underline; }
         </div>
 
         <div class="form-field">
-          <label>Attribué à</label>
+          <label>Attribué à <small style="font-weight:400;color:var(--ink-mute)">(plusieurs possibles — 2 = bicolore, 3 = Ensemble)</small></label>
           <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;
                    border-radius:8px;border:2px solid var(--line);font-size:13px;font-weight:500;
                    text-transform:none;letter-spacing:0;flex:1;min-width:90px;justify-content:center;
                    transition:all .15s" id="ot-lbl-yayi">
-              <input type="radio" name="ot-attribue" value="Yayi" checked
+              <input type="checkbox" name="ot-attribue" value="Yayi" checked
                      onchange="styleOrgaTaskLabels()" style="width:15px;height:15px" />
               Yayi
             </label>
@@ -2187,7 +2187,7 @@ a:hover { text-decoration: underline; }
                    border-radius:8px;border:2px solid var(--line);font-size:13px;font-weight:500;
                    text-transform:none;letter-spacing:0;flex:1;min-width:90px;justify-content:center;
                    transition:all .15s" id="ot-lbl-yoanna">
-              <input type="radio" name="ot-attribue" value="Yoanna"
+              <input type="checkbox" name="ot-attribue" value="Yoanna"
                      onchange="styleOrgaTaskLabels()" style="width:15px;height:15px" />
               Yoanna
             </label>
@@ -2195,7 +2195,7 @@ a:hover { text-decoration: underline; }
                    border-radius:8px;border:2px solid var(--line);font-size:13px;font-weight:500;
                    text-transform:none;letter-spacing:0;flex:1;min-width:90px;justify-content:center;
                    transition:all .15s" id="ot-lbl-margaux">
-              <input type="radio" name="ot-attribue" value="Margaux"
+              <input type="checkbox" name="ot-attribue" value="Margaux"
                      onchange="styleOrgaTaskLabels()" style="width:15px;height:15px" />
               Margaux
             </label>
@@ -6351,7 +6351,11 @@ function renderKanbanHTML() {
   // Appliquer filtre attribution
   if (filterAttr) {
     allCards = allCards.filter(function(a) {
-      if (a._isTask || a._isHorsACI) return (a.owner || '') === filterAttr;
+      // Tâche/hors-ACI à plusieurs coordinatrices : visible sur le filtre de chacune
+      var coords = a._coords || a._taskCoords || (a._isJalon ? a.coords : null) || [];
+      if (coords.length && coords.indexOf(filterAttr) >= 0) return true;
+      if (coords.length >= 2) return false; // 2+ coords : géré uniquement par coords ci-dessus
+      if (a._isTask || a._isHorsACI) return (a.owner || a._taskOwner || '') === filterAttr;
       if (a._isJalon) return (a.attribue || '') === filterAttr;
       return false;
     });
@@ -6684,7 +6688,7 @@ function renderAgendaHTML() {
     (state.orga_interne||[]).forEach(function(cat) {
       (cat.tasks||[]).forEach(function(t) {
         if (isTaskArchived(t) && !_showArchivedTasks) return;
-        if (t.due) add(t.due, { id:'ot_'+t.id, titre:'🏢 '+t.label, _isHorsACI:true, _horsAciType:'orga', _horsAciParentId:cat.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:cat.label, _taskDone:!!t.done });
+        if (t.due) add(t.due, { id:'ot_'+t.id, titre:'🏢 '+t.label, _isHorsACI:true, _horsAciType:'orga', _horsAciParentId:cat.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _taskCoords:(t._coords||[]).slice(), _parentLabel:cat.label, _taskDone:!!t.done });
       });
     });
     // Évènements de Planification des actions ACI (avec date définie)
@@ -6912,11 +6916,12 @@ function renderAgendaHTML() {
           var jVisio = a.visio
             ? '<a href="' + escapeHtml(a.visio) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Rejoindre la visio" style="text-decoration:none;margin-left:2px">📹</a>'
             : '';
+          var jStyleBg = bgStyle || ('background:' + bgColor + ';color:' + textColor + ';');
           gridHTML += '<div draggable="true" '
             +'ondragstart="agendaJalonDragStart(event,\'' + a.id + '\')" '
             +'ondragend="agendaJalonDragEnd(event)" '
             +'onclick="event.stopPropagation();openJalonModal(\'' + a.date + '\',\'' + a.id + '\')" '
-            +'style="font-size:9px;background:' + bgColor + ';color:' + textColor + ';border-radius:3px;'
+            +'style="font-size:9px;' + jStyleBg + 'border-radius:3px;'
             +'padding:1px 3px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" '
             +'title="' + escapeHtml(jLabel) + '">'
             + escapeHtml(jLabel.slice(0,18)) + jVisio + '</div>';
@@ -7178,7 +7183,7 @@ function openDayPanel(dateStr) {
   (state.orga_interne||[]).forEach(function(cat) {
     (cat.tasks||[]).forEach(function(t) {
       if (isTaskArchived(t) && !_showArchivedTasks) return;
-      if (t.due === dateStr) allItems.push({ label: '🏢 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'orga', parentId:cat.id, taskId:t.id, done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
+      if (t.due === dateStr) allItems.push({ label: '🏢 '+t.label, owner: (Array.isArray(t._coords) && t._coords.length === 2) ? t._coords.join(' + ') : (t.owner||''), _coords:(t._coords||[]).slice(), type: 'horsaci', horsAciType:'orga', parentId:cat.id, taskId:t.id, done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
     });
   });
   // Évènements de Planification des actions ACI
@@ -9013,7 +9018,20 @@ function renderOrgaTasksHTML(tasks, catId) {
       + (t.doneAt?'<div style="font-size:10px;color:var(--ok)">✓ '+fmt.date(t.doneAt)+'</div>':'')
       + (t.note && t.note.trim() ? '<div style="font-size:10.5px;color:var(--ink-mute);margin-top:2px;display:flex;gap:4px"><span>📝</span><span style="white-space:pre-wrap">'+escapeHtml(t.note)+'</span></div>' : '')
       + '</td>';
-    html += '<td>' + (t.owner && ownerC ? '<span style="padding:2px 8px;border-radius:9px;font-size:10.5px;font-weight:700;background:'+ownerC.bg+';color:'+ownerC.text+'">'+escapeHtml(t.owner)+'</span>' : '<span style="color:var(--ink-light)">—</span>') + '</td>';
+    // Badge responsable : bicolore si 2 coords, "Ensemble" si 3, sinon simple
+    var tCoords = Array.isArray(t._coords) ? t._coords : (t.owner === 'Ensemble' ? ['Yayi','Yoanna','Margaux'] : (t.owner ? [t.owner] : []));
+    var ownerBadge;
+    if (tCoords.length === 2) {
+      ownerBadge = '<span style="padding:2px 8px;border-radius:9px;font-size:10.5px;font-weight:700;color:#fff;background:linear-gradient(90deg,' + collabColorHex(tCoords[0]) + ' 50%,' + collabColorHex(tCoords[1]) + ' 50%)">' + escapeHtml(tCoords.join(' + ')) + '</span>';
+    } else if (tCoords.length >= 3 || t.owner === 'Ensemble') {
+      var ec = collabColor('Ensemble');
+      ownerBadge = '<span style="padding:2px 8px;border-radius:9px;font-size:10.5px;font-weight:700;background:' + ec.bg + ';color:' + ec.text + '">Ensemble</span>';
+    } else if (t.owner && ownerC) {
+      ownerBadge = '<span style="padding:2px 8px;border-radius:9px;font-size:10.5px;font-weight:700;background:'+ownerC.bg+';color:'+ownerC.text+'">'+escapeHtml(t.owner)+'</span>';
+    } else {
+      ownerBadge = '<span style="color:var(--ink-light)">—</span>';
+    }
+    html += '<td>' + ownerBadge + '</td>';
     html += '<td>' + (t.due ? '<span class="tag tag-' + urgencyToTag(lvl) + '" style="font-size:10.5px">'+fmt.date(t.due)+'</span>' : '<span style="color:var(--ink-light)">—</span>') + '</td>';
     html += '<td><button class="btn btn-sm btn-danger-text" onclick="deleteOrgaTask(\'' + catId + '\',\'' + t.id + '\')">🗑</button></td>';
     html += '</tr>';
@@ -9191,6 +9209,16 @@ function annulerReunionActive() {
 var _reHistoryOpen = false;
 function toggleReunionHistory() { _reHistoryOpen = !_reHistoryOpen; renderOrgaInterne(); }
 
+// Supprime une réunion archivée de l'historique
+function deleteReunionHistory(histId) {
+  if (!confirm('Supprimer définitivement cette réunion archivée ?')) return;
+  var re = getReunionEquipe();
+  re.history = (re.history || []).filter(function(h){ return h.id !== histId; });
+  saveState();
+  renderOrgaInterne();
+  toast('Réunion archivée supprimée');
+}
+
 // Rendu de la section Réunion d'équipe
 // État d'ouverture de l'accordéon Réunion d'équipe
 var _reAccordionOpen = false;
@@ -9304,8 +9332,11 @@ function renderReunionEquipeHTML() {
       html += '<div style="margin-top:8px;display:flex;flex-direction:column;gap:10px">';
       re.history.forEach(function(h){
         html += '<div style="padding:10px;background:var(--bg-soft);border-radius:8px">';
-        html += '<div style="font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:4px">📅 Réunion du ' + fmt.date(h.date);
+        html += '<div style="font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:4px;display:flex;align-items:center;gap:6px">';
+        html += '<span style="flex:1">📅 Réunion du ' + fmt.date(h.date);
         if (h.presents && h.presents.length) html += ' <span style="font-weight:400;color:var(--ink-mute)">— Présents : ' + h.presents.map(escapeHtml).join(', ') + '</span>';
+        html += '</span>';
+        html += '<button onclick="deleteReunionHistory(\'' + h.id + '\')" title="Supprimer cette réunion archivée" style="background:none;border:none;cursor:pointer;color:var(--ink-light);font-size:13px;flex-shrink:0">🗑</button>';
         html += '</div>';
         if (h.points && h.points.length) {
           html += '<ul style="margin:4px 0 0;padding-left:20px">';
@@ -9436,7 +9467,9 @@ function openOrgaTaskEdit(catId, taskId) {
   document.getElementById('ot-due').value = t.due || '';
   document.getElementById('ot-note').value = t.note || '';
   var radios = document.querySelectorAll('input[name="ot-attribue"]');
-  radios.forEach(function(r){ r.checked = (r.value === (t.owner || 'Yayi')); });
+  var tCoords = Array.isArray(t._coords) && t._coords.length ? t._coords
+    : (t.owner === 'Ensemble' ? ['Yayi','Yoanna','Margaux'] : (t.owner ? [t.owner] : ['Yayi']));
+  radios.forEach(function(r){ r.checked = (tCoords.indexOf(r.value) >= 0); });
   document.getElementById('orga-task-modal').classList.add('show');
   setTimeout(function(){ document.getElementById('ot-label').focus(); styleOrgaTaskLabels(); }, 80);
 }
@@ -9470,8 +9503,13 @@ function saveOrgaTaskModal() {
   var taskId = document.getElementById('ot-task-id').value;
   var cat = (state.orga_interne||[]).find(function(c){ return c.id === catId; });
   if (!cat) return;
-  var attrRadio = document.querySelector('input[name="ot-attribue"]:checked');
-  var owner = attrRadio ? attrRadio.value : 'Yayi';
+  // Attribution multiple : 1 = son nom ; 2 = bicolore (_coords) ; 3 = Ensemble
+  var attrChecked = Array.prototype.slice.call(document.querySelectorAll('input[name="ot-attribue"]:checked')).map(function(el){ return el.value; });
+  if (!attrChecked.length) attrChecked = ['Yayi'];
+  var owner;
+  if (attrChecked.length >= 3) owner = 'Ensemble';
+  else owner = attrChecked[0];
+  var coords = attrChecked.slice();
   var due = document.getElementById('ot-due').value;
   var note = document.getElementById('ot-note').value.trim();
   if (!cat.tasks) cat.tasks = [];
@@ -9479,7 +9517,7 @@ function saveOrgaTaskModal() {
   if (taskId) {
     // Édition d'une tâche existante
     var t = cat.tasks.find(function(x){ return x.id === taskId; });
-    if (t) { t.label = label; t.owner = owner; t.due = due; t.note = note; }
+    if (t) { t.label = label; t.owner = owner; t._coords = coords; t.due = due; t.note = note; }
     cat.updatedAt = Date.now();
     saveState();
     closeOrgaTaskModal();
@@ -9493,6 +9531,7 @@ function saveOrgaTaskModal() {
     id: makeId('otsk'),
     label: label,
     owner: owner,
+    _coords: coords,
     due: due,
     note: note,
     done: false,
@@ -9524,6 +9563,7 @@ function deleteOrgaTask(catId, taskId) {
   if (!cat) return;
   cat.tasks = (cat.tasks||[]).filter(function(t){ return t.id !== taskId; });
   cat.updatedAt = Date.now();
+  markTaskDeleted(taskId);   // pierre tombale : empêche la réapparition à la synchro
   saveState(); renderOrgaInterne();
   toast('Tâche supprimée');
 }
@@ -11118,9 +11158,9 @@ function renderReunionBlocks() {
         + '<input type="url" id="reu-visio-' + i + '" value="' + escapeHtml(r.visio || '') + '" placeholder="https://teams.microsoft.com/..." style="flex:1" oninput="toggleVisioBtn(\'reu-visio-' + i + '\',\'reu-visio-join-' + i + '\')" onblur="syncReunionBlocksFromDOM();" />'
         + '<button type="button" id="reu-visio-join-' + i + '" onclick="openVisioFromField(\'reu-visio-' + i + '\')" style="' + (r.visio ? 'display:inline-flex' : 'display:none') + ';align-items:center;gap:4px;padding:6px 12px;border:1px solid var(--teal);border-radius:6px;background:var(--teal);color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">📹 Rejoindre</button>'
         + '</div></div>';
-      // Note
+      // Note (multiligne : les sauts de ligne sont conservés)
       html += '<div class="form-field" style="margin-bottom:8px"><label>Note</label>'
-        + '<input type="text" id="reu-note-' + i + '" value="' + escapeHtml(r.note || '') + '" placeholder="Précision, ordre du jour, lien visio…" onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}" onblur="syncReunionBlocksFromDOM();" /></div>';
+        + '<textarea id="reu-note-' + i + '" rows="3" placeholder="Précision, ordre du jour, lien visio…&#10;(Entrée = nouvelle ligne)" onblur="syncReunionBlocksFromDOM();" style="resize:vertical;min-height:60px;font-family:inherit">' + escapeHtml(r.note || '') + '</textarea></div>';
       // Sous-tâches
       html += '<div class="form-field"><label>Sous-tâches <small style="font-weight:400;color:var(--ink-mute)">(une date fait remonter la sous-tâche dans l\'agenda)</small></label>';
       (r.subtasks || []).forEach(function(st, si) {
@@ -11245,6 +11285,7 @@ function syncProjetEvtBlocksFromDOM() {
     var d = document.getElementById('pevt-date-' + i);     if (d) ev.date = d.value;
     var he = document.getElementById('pevt-heure-' + i);   if (he) ev.heure = he.value;
     var vi = document.getElementById('pevt-visio-' + i);   if (vi) ev.visio = vi.value;
+    var pevn = document.getElementById('pevt-note-' + i);  if (pevn) ev.note = pevn.value;
     var dn = document.getElementById('pevt-done-' + i);    if (dn) ev.done = dn.checked;
     var l = document.getElementById('pevt-lieu-' + i);     if (l) ev.lieu = l.value;
     var pp = document.getElementById('pevt-part-' + i);    if (pp) ev.prevPartenaires = pp.value;
@@ -11309,6 +11350,9 @@ function renderProjetEvtBlocks() {
       + '<input type="url" id="pevt-visio-' + i + '" value="' + escapeHtml(ev.visio||'') + '" placeholder="https://teams.microsoft.com/..." style="flex:1" oninput="toggleVisioBtn(\'pevt-visio-' + i + '\',\'pevt-visio-join-' + i + '\')" onblur="syncProjetEvtBlocksFromDOM();" />'
       + '<button type="button" id="pevt-visio-join-' + i + '" onclick="openVisioFromField(\'pevt-visio-' + i + '\')" style="' + (ev.visio ? 'display:inline-flex' : 'display:none') + ';align-items:center;gap:4px;padding:6px 12px;border:1px solid var(--teal);border-radius:6px;background:var(--teal);color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">📹 Rejoindre</button>'
       + '</div></div>';
+    // Note (multiligne)
+    html += '<div class="form-field row-full"><label>📝 Note <small style="font-weight:400;color:var(--ink-mute)">(optionnelle — Entrée = nouvelle ligne)</small></label>'
+      + '<textarea id="pevt-note-' + i + '" rows="3" placeholder="Précisions, contexte, points à retenir…" onblur="syncProjetEvtBlocksFromDOM();" style="resize:vertical;min-height:60px;font-family:inherit">' + escapeHtml(ev.note||'') + '</textarea></div>';
     html += '</div>';
     // Animatrices
     html += '<div style="margin-top:8px"><label style="font-size:12px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:5px">Animatrices de l\'évènement</label><div style="display:flex;gap:8px;flex-wrap:wrap">';
@@ -11486,6 +11530,7 @@ function syncEvtBlocksFromDOM() {
     var d = document.getElementById('evt-date-' + i);     if (d) ev.date = d.value;
     var he = document.getElementById('evt-heure-' + i);   if (he) ev.heure = he.value;
     var vi = document.getElementById('evt-visio-' + i);   if (vi) ev.visio = vi.value;
+    var evn = document.getElementById('evt-note-' + i);   if (evn) ev.note = evn.value;
     var dn = document.getElementById('evt-done-' + i);    if (dn) ev.done = dn.checked;
     var l = document.getElementById('evt-lieu-' + i);     if (l) ev.lieu = l.value;
     var pp = document.getElementById('evt-part-' + i);    if (pp) ev.prevPartenaires = pp.value;
@@ -11568,11 +11613,10 @@ function renderEvtBlocks() {
       + '<input type="url" id="evt-visio-' + i + '" value="' + escapeHtml(ev.visio||'') + '" placeholder="https://teams.microsoft.com/..." style="flex:1" oninput="toggleVisioBtn(\'evt-visio-' + i + '\',\'evt-visio-join-' + i + '\')" onblur="syncEvtBlocksFromDOM();" />'
       + '<button type="button" id="evt-visio-join-' + i + '" onclick="openVisioFromField(\'evt-visio-' + i + '\')" style="' + (ev.visio ? 'display:inline-flex' : 'display:none') + ';align-items:center;gap:4px;padding:6px 12px;border:1px solid var(--teal);border-radius:6px;background:var(--teal);color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">📹 Rejoindre</button>'
       + '</div></div>';
+    // Note (multiligne)
+    html += '<div class="form-field row-full"><label>📝 Note <small style="font-weight:400;color:var(--ink-mute)">(optionnelle — Entrée = nouvelle ligne)</small></label>'
+      + '<textarea id="evt-note-' + i + '" rows="3" placeholder="Précisions, contexte, points à retenir…" onblur="syncEvtBlocksFromDOM();" style="resize:vertical;min-height:60px;font-family:inherit">' + escapeHtml(ev.note||'') + '</textarea></div>';
     html += '</div>';
-
-    // Animatrices
-    html += '<div style="margin-top:8px"><label style="font-size:12px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:5px">Animatrices de l\'évènement</label>'
-      + '<div style="display:flex;gap:8px;flex-wrap:wrap">';
     ANIM.forEach(function(name) {
       var on = (ev.animatrices||[]).indexOf(name) !== -1;
       var col = collabColor(name);
