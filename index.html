@@ -10210,10 +10210,13 @@ function jalonToReunion(taskData) {
 //   - un id d'évènement       → tâche ajoutée dans cet évènement
 // Retourne true si la migration a réussi.
 function migrateJalonToFiche(cat, cibleId, taskData) {
+  var _tCoords = Array.isArray(taskData.coords) ? taskData.coords.slice() : [];
+  var _tOwner = (_tCoords.length >= 3) ? 'Ensemble' : (taskData.attribue || (_tCoords.length ? _tCoords[0] : ''));
   var newTask = {
     id: makeId('task'),
     label: taskData.titre,
-    owner: taskData.attribue || '',
+    owner: _tOwner,
+    _coords: _tCoords,
     due: taskData.date || '',
     note: taskData.note || '',
     done: false,
