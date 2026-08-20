@@ -6156,7 +6156,15 @@ function setPlanningView(v) { planningView = v; renderPlanning(); }
 function renderPlanningInner() {
   const el = document.getElementById('planning-inner');
   if (planningView === 'kanban') el.innerHTML = renderKanbanHTML();
-  else el.innerHTML = renderAgendaHTML();
+  else {
+    el.innerHTML = renderAgendaHTML();
+    // Ré-ouvre le panneau du jour s'il était ouvert (évite qu'il se referme à chaque rafraîchissement auto)
+    if (_openDayPanelDate && planningView !== 'kanban') {
+      var _d = _openDayPanelDate;
+      _openDayPanelDate = ''; // openDayPanel le remettra (évite le toggle qui refermerait)
+      try { openDayPanel(_d); } catch(e) {}
+    }
+  }
 }
 
 
@@ -6625,6 +6633,7 @@ function openHorsACIFromKanban(type, parentId) {
 
 // État des mois ouverts dans l'agenda (persiste entre les re-rendus)
 var _agendaMonthsOpen = {};
+var _openDayPanelDate = '';   // jour dont le panneau est ouvert (pour le rouvrir après un re-render)
 // Initialiser avec le mois courant ouvert par défaut
 (function() { var now = new Date(); _agendaMonthsOpen[now.getMonth()] = true; })();
 
@@ -7150,10 +7159,12 @@ function openDayPanel(dateStr) {
   if (panel.dataset.date === dateStr && panel.style.display !== 'none') {
     panel.style.display = 'none';
     panel.dataset.date = '';
+    _openDayPanelDate = '';   // plus aucun panneau ouvert
     return;
   }
   panel.dataset.date = dateStr;
   panel.style.display = 'block';
+  _openDayPanelDate = dateStr;   // mémorise le jour ouvert (pour le ré-ouvrir après un re-render)
 
   // Collecte des items de ce jour (sans filtre attribution)
   var allItems = [];
