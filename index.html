@@ -4012,7 +4012,7 @@ function mergeStates(localState, remoteState) {
   merged.collabs      = mergeEntityList(localState.collabs, remoteState.collabs, deletedMap);
   merged.commu        = mergeEntityList(localState.commu, remoteState.commu, deletedMap);
   // Réunion d'équipe : fusion des points par id + historique par id
-  merged.reunionEquipe = mergeReunionEquipe(localState.reunionEquipe, remoteState.reunionEquipe, base);
+  merged.reunionEquipe = mergeReunionEquipe(localState.reunionEquipe, remoteState.reunionEquipe, base, deletedMap);
   // meta : garder le savedAt le plus récent
   merged.meta = base.meta || {};
   return merged;
@@ -4020,9 +4020,10 @@ function mergeStates(localState, remoteState) {
 
 // Fusionne la Réunion d'équipe : points et historique par id (aucun ajout perdu entre coordinatrices).
 // Les "présents" (état éphémère de la réunion en cours) suivent la version la plus récente (base).
-function mergeReunionEquipe(local, remote, base) {
+function mergeReunionEquipe(local, remote, base, deletedMap) {
   local = local || { points: [], presents: [], history: [], active: null, reportes: [] };
   remote = remote || { points: [], presents: [], history: [], active: null, reportes: [] };
+  deletedMap = deletedMap || {};
   function mergeById(a, b) {
     a = Array.isArray(a) ? a : []; b = Array.isArray(b) ? b : [];
     var byId = {}, order = [];
@@ -4035,7 +4036,8 @@ function mergeReunionEquipe(local, remote, base) {
         byId[x.id] = ta >= tb ? x : byId[x.id];
       }
     });
-    return order.map(function(id){ return byId[id]; });
+    // Exclure les entrées supprimées (pierre tombale)
+    return order.filter(function(id){ return !deletedMap[id]; }).map(function(id){ return byId[id]; });
   }
   var baseRE = (base && base.reunionEquipe) ? base.reunionEquipe : remote;
   return {
@@ -9214,6 +9216,7 @@ function deleteReunionHistory(histId) {
   if (!confirm('Supprimer définitivement cette réunion archivée ?')) return;
   var re = getReunionEquipe();
   re.history = (re.history || []).filter(function(h){ return h.id !== histId; });
+  markDeleted(histId);   // pierre tombale : empêche la réapparition à la synchro
   saveState();
   renderOrgaInterne();
   toast('Réunion archivée supprimée');
