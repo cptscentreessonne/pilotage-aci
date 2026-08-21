@@ -11634,6 +11634,8 @@ function renderEvtBlocks() {
     html += '<div class="form-field row-full"><label>📝 Note <small style="font-weight:400;color:var(--ink-mute)">(optionnelle — Entrée = nouvelle ligne)</small></label>'
       + '<textarea id="evt-note-' + i + '" rows="3" placeholder="Précisions, contexte, points à retenir…" onblur="syncEvtBlocksFromDOM();" style="resize:vertical;min-height:60px;font-family:inherit">' + escapeHtml(ev.note||'') + '</textarea></div>';
     html += '</div>';
+    // Animatrices
+    html += '<div style="margin-top:8px"><label style="font-size:12px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:5px">Animatrices de l\'évènement</label><div style="display:flex;gap:8px;flex-wrap:wrap">';
     ANIM.forEach(function(name) {
       var on = (ev.animatrices||[]).indexOf(name) !== -1;
       var col = collabColor(name);
