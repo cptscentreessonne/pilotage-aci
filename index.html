@@ -6242,6 +6242,9 @@ function renderKanbanHTML() {
   state.actions.forEach(function(a) {
     if (a.statut === 'archive') return;
     (a.tasks||[]).forEach(function(t) {
+      // Les sous-tâches de réunion ne créent pas de carte Kanban séparée :
+      // elles sont regroupées dans la carte de leur réunion parente.
+      if (t._isReunionSubtask) return;
       // Statut stocké sur la tâche, sinon calculé
       var s = t.kanbanStatut || (t.done ? 'realise' : (t.due && t.due < new Date().toISOString().slice(0,10) ? 'en_cours' : 'a_lancer'));
       // Tâche réalisée depuis +1 mois → colonne Archivé (affichage Planning uniquement)
@@ -6268,6 +6271,7 @@ function renderKanbanHTML() {
   (state.projets||[]).forEach(function(p) {
     if (p.statut === 'archive') return;
     (p.tasks||[]).forEach(function(t) {
+      if (t._isReunionSubtask) return;
       var s = t.kanbanStatut || (t.done ? 'realise' : (t.due && t.due < new Date().toISOString().slice(0,10) ? 'en_cours' : 'a_lancer'));
       if (isTaskArchived(t)) s = 'archive';
       horsAciCards.push({
@@ -6289,6 +6293,7 @@ function renderKanbanHTML() {
   (state.evenements||[]).forEach(function(e) {
     if (e.statut === 'archive') return;
     (e.tasks||[]).forEach(function(t) {
+      if (t._isReunionSubtask) return;
       var s = t.kanbanStatut || (t.done ? 'realise' : (t.due && t.due < new Date().toISOString().slice(0,10) ? 'en_cours' : 'a_lancer'));
       if (isTaskArchived(t)) s = 'archive';
       horsAciCards.push({
@@ -6653,6 +6658,8 @@ function renderAgendaHTML() {
     state.actions.forEach(function(a) {
       if (a.echeance && a.statut !== 'archive') add(a.echeance, a);
       (a.tasks||[]).forEach(function(t) {
+        // Les sous-tâches de réunion sont regroupées dans leur réunion parente (pas de ligne séparée)
+        if (t._isReunionSubtask) return;
         // Tâche archivée (réalisée depuis +1 mois) → masquée sauf si l'option est activée
         if (isTaskArchived(t) && !_showArchivedTasks) return;
         if (t.due) add(t.due, Object.assign({}, a, {
@@ -6682,6 +6689,7 @@ function renderAgendaHTML() {
       if (p.statut === 'archive') return;
       if (p.fin) add(p.fin, { id:p.id, titre:'🚀 '+p.titre, _isHorsACI:true, _horsAciType:'projet', _horsAciParentId:p.id, echeance:p.fin, statut:p.statut||'a_lancer', owner:p.responsable||'' });
       (p.tasks||[]).forEach(function(t) {
+        if (t._isReunionSubtask) return;
         if (isTaskArchived(t) && !_showArchivedTasks) return;
         if (t.due) add(t.due, { id:'pt_'+t.id, titre:'🚀 '+t.label, _isHorsACI:true, _horsAciType:'projet', _horsAciParentId:p.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:p.titre, _taskCoords:(t._coords||[]).slice(), _taskDone:!!t.done, _heure:t.heure||'', _visio:t.visio||'' });
       });
@@ -6691,6 +6699,7 @@ function renderAgendaHTML() {
       if (e.statut === 'archive') return;
       if (e.date) add(e.date, { id:e.id, titre:'🎉 '+(e.titre||e.nom||'Évènement'), _isHorsACI:true, _horsAciType:'evenement', _horsAciParentId:e.id, echeance:e.date, statut:e.statut||'a_lancer', owner:'Ensemble', _evtDone:!!e.done, _heure:e.heure||'', _visio:e.visio||'' });
       (e.tasks||[]).forEach(function(t) {
+        if (t._isReunionSubtask) return;
         if (isTaskArchived(t) && !_showArchivedTasks) return;
         if (t.due) add(t.due, { id:'et_'+t.id, titre:'🎉 '+t.label, _isHorsACI:true, _horsAciType:'evenement', _horsAciParentId:e.id, echeance:t.due, statut:t.done?'realise':'a_lancer', owner:t.owner||'', _parentLabel:e.titre||e.nom||'', _taskCoords:(t._coords||[]).slice(), _taskDone:!!t.done, _heure:t.heure||'', _visio:t.visio||'' });
       });
@@ -7175,6 +7184,7 @@ function openDayPanel(dateStr) {
     if (a.statut === 'archive') return;
     if (a.echeance === dateStr) allItems.push({ label: a.titre, owner: '', type: 'aci', id: a.id });
     (a.tasks||[]).forEach(function(t) {
+      if (t._isReunionSubtask) return;
       if (isTaskArchived(t) && !_showArchivedTasks) return;
       if (t.due === dateStr) allItems.push({ label: t.label, owner: (t._coords && t._coords.length === 2) ? t._coords.join(' + ') : (t.owner||''), type: 'task', actionId: a.id, taskId: t.id, note: t.note||'', done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
     });
@@ -7182,6 +7192,7 @@ function openDayPanel(dateStr) {
   (state.projets||[]).forEach(function(p) {
     if (p.fin === dateStr) allItems.push({ label: '🚀 '+p.titre, owner: p.responsable||'', type: 'horsaci', horsAciType:'projet', parentId:p.id });
     (p.tasks||[]).forEach(function(t) {
+      if (t._isReunionSubtask) return;
       if (isTaskArchived(t) && !_showArchivedTasks) return;
       if (t.due === dateStr) allItems.push({ label: '🚀 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'projet', parentId:p.id, taskId:t.id, done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
     });
@@ -7189,6 +7200,7 @@ function openDayPanel(dateStr) {
   (state.evenements||[]).forEach(function(e) {
     if (e.date === dateStr) allItems.push({ label: '🎉 '+(e.titre||e.nom||'Évènement'), owner: 'Ensemble', type: 'horsaci', horsAciType:'evenement', parentId:e.id, done: !!e.done, heure: e.heure||'', visio: e.visio||'' });
     (e.tasks||[]).forEach(function(t) {
+      if (t._isReunionSubtask) return;
       if (isTaskArchived(t) && !_showArchivedTasks) return;
       if (t.due === dateStr) allItems.push({ label: '🎉 '+t.label, owner: t.owner||'', type: 'horsaci', horsAciType:'evenement', parentId:e.id, taskId:t.id, done: !!t.done, heure: t.heure||'', visio: t.visio||'' });
     });
