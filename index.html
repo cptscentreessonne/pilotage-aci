@@ -11066,7 +11066,41 @@ function toggleReunionCoord(idx, name) {
   var pos = r.coords.indexOf(name);
   if (pos >= 0) r.coords.splice(pos, 1);
   else r.coords.push(name);
+  autoAssignReunionSubtasks(r);
   renderReunionBlocks();
+}
+
+// Attribution automatique des sous-tâches d'une réunion selon les coordinatrices :
+// - 1 seule coord → toutes les sous-tâches SANS attribution manuelle lui sont attribuées ;
+// - 2 ou 3 coords → le champ "qui" reste libre.
+// Ne JAMAIS écraser une attribution déjà saisie manuellement (_ownerManual).
+function autoAssignReunionSubtasks(r) {
+  if (!r || !r.subtasks) return;
+  var coords = r.coords || [];
+  if (coords.length === 1) {
+    var seule = coords[0];
+    r.subtasks.forEach(function(st) {
+      if (!st._ownerManual && (!st.owner || st.owner.trim() === '')) {
+        st.owner = seule;
+        st._ownerAuto = true;
+      } else if (st._ownerAuto && !st._ownerManual) {
+        st.owner = seule;
+      }
+    });
+  } else {
+    r.subtasks.forEach(function(st) {
+      if (st._ownerAuto && !st._ownerManual) { st.owner = ''; st._ownerAuto = false; }
+    });
+  }
+}
+
+// Marque une sous-tâche de réunion comme attribuée manuellement
+function markReunionSubtaskOwnerManual(blockIdx, stIdx, val) {
+  var r = _reunionBlocks[blockIdx];
+  if (!r || !r.subtasks || !r.subtasks[stIdx]) return;
+  r.subtasks[stIdx].owner = val;
+  r.subtasks[stIdx]._ownerManual = (val !== '');
+  r.subtasks[stIdx]._ownerAuto = false;
 }
 
 function addReunionSubtask(idx) {
@@ -11075,6 +11109,7 @@ function addReunionSubtask(idx) {
   if (!r) return;
   if (!Array.isArray(r.subtasks)) r.subtasks = [];
   r.subtasks.push({ id: makeId('rst'), label: '', done: false, owner: '', due: '' });
+  autoAssignReunionSubtasks(r);
   renderReunionBlocks();
 }
 
@@ -11184,7 +11219,7 @@ function renderReunionBlocks() {
         html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">'
           + '<input type="checkbox" id="reu-st-done-' + i + '-' + si + '" ' + (st.done ? 'checked' : '') + ' onchange="syncReunionBlocksFromDOM();renderReunionBlocks();" style="width:14px;height:14px;cursor:pointer;flex-shrink:0;accent-color:var(--teal)" />'
           + '<input type="text" id="reu-st-' + i + '-' + si + '" value="' + escapeHtml(st.label || '') + '" placeholder="Sous-tâche…" onkeydown="if(event.key===\'Enter\'){event.preventDefault();syncReunionBlocksFromDOM();addReunionSubtask(' + i + ');}" onblur="syncReunionBlocksFromDOM();" style="flex:1;min-width:130px" />'
-          + '<select id="reu-st-owner-' + i + '-' + si + '" onchange="syncReunionBlocksFromDOM();" style="padding:5px 6px;border:1px solid var(--line);border-radius:5px;font-size:11.5px;flex-shrink:0" title="Attribuer à">';
+          + '<select id="reu-st-owner-' + i + '-' + si + '" onchange="markReunionSubtaskOwnerManual(' + i + ',' + si + ',this.value);syncReunionBlocksFromDOM();" style="padding:5px 6px;border:1px solid var(--line);border-radius:5px;font-size:11.5px;flex-shrink:0" title="Attribuer à">';
         ['','Yayi','Yoanna','Margaux'].forEach(function(nom){
           html += '<option value="' + nom + '"' + ((st.owner||'') === nom ? ' selected' : '') + '>' + (nom || '— Qui ? —') + '</option>';
         });
