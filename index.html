@@ -8426,6 +8426,7 @@ function openProjetModal(id) {
         id: ev.id || makeId('evt'),
         titre: ev.titre || '', type: ev.type || '', date: ev.date || '', lieu: ev.lieu || '',
         heure: ev.heure || '', visio: ev.visio || '', done: !!ev.done,
+        note: ev.note || '',
         animatrices: (ev.animatrices || []).slice(),
         journeePrev: !!ev.journeePrev, prevThemes: (ev.prevThemes || []).slice(),
         prevActionIds: (ev.prevActionIds || []).slice(),
@@ -8483,6 +8484,7 @@ function saveProjet() {
       id: ev.id || makeId('evt'),
       titre: (ev.titre||'').trim(), type: ev.type || '', date: ev.date || '', lieu: (ev.lieu||'').trim(),
       heure: ev.heure || '', visio: (ev.visio||'').trim(), done: !!ev.done,
+      note: (ev.note||'').trim(),
       animatrices: (ev.animatrices||[]).slice(),
       journeePrev: !!ev.journeePrev, prevThemes: (ev.prevThemes||[]).slice(),
       prevActionIds: (ev.prevActionIds||[]).slice(),
@@ -11276,7 +11278,7 @@ function exportReunionBlocks() {
         done: !!r.done,
         note: (r.note || '').trim(),
         subtasks: (r.subtasks || []).filter(function(s){ return (s.label||'').trim(); })
-          .map(function(s){ return { id: s.id, label: s.label.trim(), done: !!s.done }; })
+          .map(function(s){ return { id: s.id, label: s.label.trim(), done: !!s.done, owner: s.owner||'', due: s.due||'', _ownerAuto: !!s._ownerAuto, _ownerManual: !!s._ownerManual }; })
       };
     });
   // Tri chronologique (datées d'abord, sans date à la fin ; à date égale, par heure)
@@ -12208,6 +12210,7 @@ function openActionModal(id) {
         id: ev.id || makeId('evt'),
         titre: ev.titre || '', type: ev.type || '', date: ev.date || '', lieu: ev.lieu || '',
         heure: ev.heure || '', visio: ev.visio || '', done: !!ev.done,
+        note: ev.note || '',
         animatrices: (ev.animatrices || []).slice(),
         journeePrev: !!ev.journeePrev, prevThemes: (ev.prevThemes || []).slice(),
         prevActionIds: (ev.prevActionIds || []).slice(),
@@ -12305,6 +12308,7 @@ function saveAction() {
       visio: (ev.visio||'').trim(),
       done: !!ev.done,
       lieu: (ev.lieu||'').trim(),
+      note: (ev.note||'').trim(),
       animatrices: (ev.animatrices||[]).slice(),
       journeePrev: !!ev.journeePrev,
       prevThemes: (ev.prevThemes||[]).slice(),
