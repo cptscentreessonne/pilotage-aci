@@ -4040,13 +4040,40 @@ function mergeReunionEquipe(local, remote, base, deletedMap) {
     return order.filter(function(id){ return !deletedMap[id]; }).map(function(id){ return byId[id]; });
   }
   var baseRE = (base && base.reunionEquipe) ? base.reunionEquipe : remote;
+
+  // Fusion de la réunion active : on ne l'écrase plus en bloc (ce qui effaçait les points
+  // saisis localement en cas de synchro concurrente). On fusionne ses points par id.
+  var localActive = local.active || null;
+  var remoteActive = remote.active || null;
+  var mergedActive;
+  if (localActive && remoteActive) {
+    // Les deux ont une réunion active → fusionner les points par id (union, dédup)
+    mergedActive = {
+      // date/présents : suivre la version la plus récemment modifiée
+      date: (aTs(localActive) >= aTs(remoteActive) ? localActive.date : remoteActive.date) || localActive.date || remoteActive.date || '',
+      presents: (aTs(localActive) >= aTs(remoteActive) ? (localActive.presents||[]) : (remoteActive.presents||[])).slice(),
+      points: mergeById(localActive.points, remoteActive.points),
+      updatedAt: Math.max(aTs(localActive), aTs(remoteActive))
+    };
+  } else {
+    // Un seul côté a une réunion active → la garder (ne jamais perdre une réunion en cours)
+    mergedActive = localActive || remoteActive || null;
+  }
+
   return {
     points: mergeById(local.points, remote.points),
     history: mergeById(local.history, remote.history),
     presents: (baseRE.presents || []),
-    active: (baseRE.active || null),        // la réunion en cours suit la version la plus récente
-    reportes: (baseRE.reportes || [])       // idem pour les points reportés
+    active: mergedActive,
+    reportes: (baseRE.reportes || [])       // points reportés : suit la version de base
   };
+}
+
+// Timestamp d'une réunion active (pour arbitrer date/présents)
+function aTs(a) {
+  if (!a) return 0;
+  if (a.updatedAt) return typeof a.updatedAt === 'number' ? a.updatedAt : new Date(a.updatedAt).getTime();
+  return 0;
 }
 
 // Enregistre une suppression d'entité (pierre tombale) pour qu'elle soit respectée à la fusion
@@ -9112,7 +9139,8 @@ function nouvelleReunionEquipe() {
   re.active = {
     date: new Date().toISOString().slice(0,10),
     presents: [],
-    points: (re.reportes && re.reportes.length) ? re.reportes.slice() : []
+    points: (re.reportes && re.reportes.length) ? re.reportes.slice() : [],
+    updatedAt: Date.now()
   };
   re.reportes = [];
   saveState();
@@ -9124,6 +9152,7 @@ function setReunionActiveDate(val) {
   var re = getReunionEquipe();
   if (!re.active) return;
   re.active.date = val;
+  re.active.updatedAt = Date.now();
   saveState();
 }
 
@@ -9145,6 +9174,7 @@ function addReunionPoint() {
     aborde: false,
     updatedAt: Date.now()
   });
+  re.active.updatedAt = Date.now();
   saveState();
   inp.value = '';
   renderOrgaInterne();
@@ -9159,6 +9189,7 @@ function toggleReunionPointAborde(id, checked) {
   if (!p) return;
   p.aborde = checked;
   p.updatedAt = Date.now();
+  re.active.updatedAt = Date.now();
   saveState();
   renderOrgaInterne();
 }
@@ -9171,6 +9202,7 @@ function setReunionPointPriorite(id, prio) {
   if (!p) return;
   p.priorite = prio;
   p.updatedAt = Date.now();
+  re.active.updatedAt = Date.now();
   saveState();
   renderOrgaInterne();
 }
@@ -9181,6 +9213,7 @@ function deleteReunionPoint(id) {
   var re = getReunionEquipe();
   if (!re.active) return;
   re.active.points = re.active.points.filter(function(x){ return x.id !== id; });
+  re.active.updatedAt = Date.now();
   saveState();
   renderOrgaInterne();
 }
@@ -9191,6 +9224,7 @@ function toggleReunionPresent(nom) {
   if (!re.active) return;
   var i = re.active.presents.indexOf(nom);
   if (i === -1) re.active.presents.push(nom); else re.active.presents.splice(i, 1);
+  re.active.updatedAt = Date.now();
   saveState();
   renderOrgaInterne();
 }
