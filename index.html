@@ -4154,7 +4154,7 @@ async function spSaveData(data) {
     // Mettre à jour le localStorage (filet de sécurité uniquement)
     storageSet(STORAGE_KEY, content);
     // Rafraîchir l'affichage si la fusion a apporté des nouveautés — sauf si édition en cours
-    if (remote && !modalOpen) { try { renderApp(true); } catch(e){} }
+    if (remote && !modalOpen && !isTypingReunionPoint()) { try { renderApp(true); } catch(e){} }
     // Traiter la file d'attente
     if (_spSaveQueue) {
       var queued = _spSaveQueue;
@@ -4240,6 +4240,9 @@ async function spPeriodicRefresh() {
   if (!_spEnabled || !_spToken || _spSaving || _spRefreshInProgress) return;
   // Ne pas rafraîchir si un modal est ouvert (éviter de perturber une saisie en cours)
   if (document.querySelector('.modal-backdrop.show')) return;
+  // Ne pas rafraîchir si l'utilisateur est en train de saisir un point de réunion d'équipe
+  // (le re-render régénérerait le champ et effacerait la saisie en cours)
+  if (isTypingReunionPoint()) return;
   _spRefreshInProgress = true;
   try {
     var remote = await spFetchRemoteState();
@@ -9107,6 +9110,16 @@ var RE_PRIORITES = [
 ];
 var RE_PERSONNES = ['Yayi', 'Yoanna', 'Margaux', 'Hermann', 'Adelette'];
 
+// Détecte si l'utilisateur est en train de saisir un point de réunion d'équipe
+// (le champ a le focus et/ou contient du texte non validé) → ne pas re-render à ce moment
+function isTypingReunionPoint() {
+  var inp = document.getElementById('re-new-label');
+  if (!inp) return false;
+  var active = document.activeElement === inp;
+  var hasText = (inp.value || '').trim().length > 0;
+  return active || hasText;
+}
+
 function getReunionEquipe() {
   if (!state.reunionEquipe) state.reunionEquipe = { points: [], presents: [], history: [], active: null };
   if (!Array.isArray(state.reunionEquipe.points)) state.reunionEquipe.points = [];
@@ -9214,6 +9227,7 @@ function deleteReunionPoint(id) {
   if (!re.active) return;
   re.active.points = re.active.points.filter(function(x){ return x.id !== id; });
   re.active.updatedAt = Date.now();
+  markDeleted(id);   // pierre tombale : empêche la réapparition à la synchro
   saveState();
   renderOrgaInterne();
 }
