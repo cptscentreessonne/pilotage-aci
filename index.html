@@ -4566,9 +4566,29 @@ function resolveStatut(action) {
   return computeAutoStatut(action);
 }
 
+// Calcule un avancement (0..1) à partir d'une liste de tâches, en appliquant l'Option A :
+// - les sous-tâches de réunion (_isReunionSubtask) sont exclues du décompte ;
+// - une tâche mère avec sous-tâches contribue à hauteur de la proportion de sous-tâches cochées ;
+// - une tâche mère sans sous-tâche compte pour 0 ou 1 (faite ou non).
+// Retourne { done, total, ratio } où done/total sont "équivalents tâches mères".
+function progressFromTasks(tasksArray) {
+  var meres = (tasksArray || []).filter(function(t){ return !t._isReunionSubtask; });
+  if (meres.length === 0) return { done: 0, total: 0, ratio: null };
+  var somme = 0;
+  meres.forEach(function(t){
+    var sub = t.subtasks || [];
+    if (sub.length > 0) somme += sub.filter(function(st){ return st.done; }).length / sub.length;
+    else somme += t.done ? 1 : 0;
+  });
+  return { done: somme, total: meres.length, ratio: somme / meres.length };
+}
+
 function calcTauxAction(action) {
-  const taches = action.tasks || [];
-  const tauxTaches = taches.length === 0 ? null : (taches.filter(t => t.done).length / taches.length) * 100;
+  // Ne compter que les tâches "mères" (réunions/tâches et tâches d'évènement) ;
+  // les sous-tâches de réunion sont exclues, et une tâche mère avec sous-tâches
+  // contribue à hauteur de la proportion de ses sous-tâches cochées (Option A).
+  const prog = progressFromTasks(action.tasks);
+  const tauxTaches = prog.ratio === null ? null : prog.ratio * 100;
   const livs = action.livrables || [];
   const tauxLivrables = livs.length === 0 ? null : (livs.filter(l => l.statut === 'realise').length / livs.length) * 100;
 
@@ -4853,8 +4873,9 @@ function renderDashboard() {
           ${(state.projets||[]).length === 0
             ? '<div class="empty-state" style="padding:20px"><p>Aucun projet — créez-en depuis l\'onglet <strong>Projets hors ACI</strong>.</p></div>'
             : (state.projets||[]).slice(0,3).map(p => {
-                const tasksDone = (p.tasks||[]).filter(t=>t.done).length;
-                const tasksTotal = (p.tasks||[]).length;
+                const _dp = progressFromTasks(p.tasks);
+                const tasksDone = _dp.done;
+                const tasksTotal = _dp.total;
                 const livsDone = (p.livrables||[]).filter(l=>l.statut==='realise').length;
                 const livsTotal = (p.livrables||[]).length;
                 const taux = tasksTotal + livsTotal === 0 ? 0 : ((tasksDone+livsDone)/(tasksTotal+livsTotal))*100;
@@ -8067,13 +8088,13 @@ function renderMatriceCollabsHTML() {
                 <div style="font-weight:600">${escapeHtml(a.titre.slice(0,45))}</div>
               </td>
               ${state.collabs.map(c => {
-                const tasks = (a.tasks||[]).filter(t=>t.owner===c.name);
+                const tasks = (a.tasks||[]).filter(t=>!t._isReunionSubtask && t.owner===c.name);
                 const done  = tasks.filter(t=>t.done).length;
                 return `<td class="center" style="font-size:12.5px;font-weight:600;color:${tasks.length?'var(--ink)':'var(--ink-light)'}">
                   ${tasks.length ? (done + '/' + tasks.length) : '—'}
                 </td>`;
               }).join('')}
-              <td class="num" style="font-weight:600">${(a.tasks||[]).length}</td>
+              <td class="num" style="font-weight:600">${(a.tasks||[]).filter(t=>!t._isReunionSubtask).length}</td>
             </tr>
           `;
         }).join('')}
@@ -8705,8 +8726,9 @@ function renderEvenements() {
   const renderEvt = (e) => {
     const livsDone = (e.livrables||[]).filter(l=>l.statut==='realise').length;
     const livsTotal = (e.livrables||[]).length;
-    const tasksDone = (e.tasks||[]).filter(t=>t.done).length;
-    const tasksTotal = (e.tasks||[]).length;
+    const _ep = progressFromTasks(e.tasks);
+    const tasksDone = Math.round(_ep.done);
+    const tasksTotal = _ep.total;
     const joursJ = e.date ? daysUntil(e.date) : null;
     const isClose = joursJ !== null && joursJ >= 0 && joursJ <= 30;
     const isPast  = joursJ !== null && joursJ < 0;
@@ -12958,8 +12980,9 @@ function exportAllExcel() {
   // Feuille 6 : Projets hors ACI
   const projetsRows = [['Titre', 'Statut', 'Responsable', 'Début', 'Fin', 'Financement', 'Budget (€)', 'Partenaires', 'Avancement']];
   (state.projets||[]).forEach(p => {
-    const tasksDone = (p.tasks||[]).filter(t=>t.done).length;
-    const tasksTotal = (p.tasks||[]).length;
+    const _pp = progressFromTasks(p.tasks);
+    const tasksDone = _pp.done;
+    const tasksTotal = _pp.total;
     const livsDone = (p.livrables||[]).filter(l=>l.statut==='realise').length;
     const livsTotal = (p.livrables||[]).length;
     const taux = tasksTotal + livsTotal === 0 ? 0 : Math.round(((tasksDone+livsDone)/(tasksTotal+livsTotal))*100);
