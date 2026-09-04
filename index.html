@@ -4048,10 +4048,13 @@ function mergeReunionEquipe(local, remote, base, deletedMap) {
   var mergedActive;
   if (localActive && remoteActive) {
     // Les deux ont une réunion active → fusionner les points par id (union, dédup)
+    // Date/présents : suivre STRICTEMENT la version la plus récemment modifiée (updatedAt),
+    // même si date est vide (cas clôture → réinitialisation volontaire).
+    var localIsNewer = aTs(localActive) >= aTs(remoteActive);
+    var newerActive = localIsNewer ? localActive : remoteActive;
     mergedActive = {
-      // date/présents : suivre la version la plus récemment modifiée
-      date: (aTs(localActive) >= aTs(remoteActive) ? localActive.date : remoteActive.date) || localActive.date || remoteActive.date || '',
-      presents: (aTs(localActive) >= aTs(remoteActive) ? (localActive.presents||[]) : (remoteActive.presents||[])).slice(),
+      date: newerActive.date != null ? newerActive.date : '',    // préserve '' volontaire
+      presents: (newerActive.presents || []).slice(),
       points: mergeById(localActive.points, remoteActive.points),
       updatedAt: Math.max(aTs(localActive), aTs(remoteActive))
     };
@@ -9282,6 +9285,9 @@ function cloreReunionEquipe() {
     points: abordes.map(function(p){ return { id: p.id, label: p.label, priorite: p.priorite, proposeur: p.proposeur, date: p.date }; }),
     updatedAt: Date.now()
   });
+  // Poser des pierres tombales sur les points abordés pour qu'ils ne reviennent
+  // pas du remote lors de la prochaine synchro (le merge fait l'union par id)
+  abordes.forEach(function(p){ markDeleted(p.id); });
   // Ouvrir DIRECTEMENT une nouvelle réunion vierge : date vide, aucun présent,
   // et uniquement les points NON abordés (repris pour être traités la prochaine fois).
   var reportes = nonAbordes.map(function(p){ p.aborde = false; return p; });
@@ -9293,6 +9299,9 @@ function cloreReunionEquipe() {
     updatedAt: Date.now()
   };
   saveState();
+  // Forcer la sauvegarde vers SharePoint IMMÉDIATEMENT (ne pas attendre le cycle auto)
+  // pour réduire la fenêtre où le remote a encore l'ancienne version
+  if (typeof spSaveData === 'function') { try { spSaveData(); } catch(e){} }
   renderOrgaInterne();
   toast('✅ Réunion clôturée' + (reportes.length ? ' — ' + reportes.length + ' point(s) repris dans la nouvelle réunion' : ' — nouvelle réunion prête'));
 }
