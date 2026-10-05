@@ -1115,6 +1115,8 @@ body.pilotage-embed .pilotage-fab-wrap { display: none !important; }
 .pilotage-edit-menu-wrap { position: relative; }
 .pilotage-edit-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.14); z-index: 50; min-width: 150px; overflow: hidden; text-align: left; }
 .pilotage-edit-menu.show { display: block; }
+/* Ouverture vers le haut quand il n'y a pas assez de place en dessous (dernière ligne d'une carte, bas de l'écran) */
+.pilotage-edit-menu.up { top: auto; bottom: 100%; margin-top: 0; margin-bottom: 4px; }
 .pilotage-edit-menu button { display: block; width: 100%; text-align: left; padding: 8px 12px; border: none; background: transparent; font-size: 12.5px; cursor: pointer; color: var(--ink-soft); white-space: nowrap; }
 .pilotage-edit-menu button:hover { background: var(--bg-soft); color: var(--ink); }
 .pag-detail-empty { color: var(--ink-mute); font-size: 12px; }
@@ -1438,6 +1440,19 @@ body.pilotage-embed .pilotage-fab-wrap { display: none !important; }
           <button type="button" class="btn btn-sm" id="btn-add-action-commu" onclick="addCommuSupportFromAction(document.getElementById('a-id').value)">＋ Ajouter une communication</button>
 
           <div class="form-section-title">Documents & liens <small>CR, conventions, supports partagés sur Drive…</small></div>
+
+          <div id="pieces-block" style="margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+              <span style="font-size:12.5px;font-weight:700;color:var(--teal-d)">✅ Pièces à fournir</span>
+              <span id="pieces-count" style="font-size:11px;font-weight:600;color:var(--ink-mute)"></span>
+              <span style="font-size:11px;color:var(--ink-mute)">Listez ici les documents à produire ; cochez-les une fois déposés dans la liste ci-dessous.</span>
+            </div>
+            <div id="pieces-list"></div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+              <button type="button" class="btn btn-sm" onclick="addPiece()">＋ Ajouter une pièce à fournir</button>
+              <button type="button" class="btn btn-sm" onclick="importPiecesFromLivrables()" title="Copie ici les livrables attendus de l'onglet Descriptif qui ne sont pas déjà listés">↧ Reprendre les livrables attendus</button>
+            </div>
+          </div>
           <div id="links-list"></div>
           <button type="button" class="btn btn-sm" onclick="addLink()">＋ Ajouter un document</button>
 
@@ -2423,9 +2438,9 @@ const MISSION_BY_ID = Object.fromEntries(MISSIONS.map(m => [m.id, m]));
 // La correspondance se fait sur le couple { theme, titre } (stable), pas sur l'id (dynamique).
 const PREV_THEMES_BASE = [
   { id: 'sante_mentale_f', label: 'Bien-être mental des femmes', match: [
-    { theme: 'Femmes / Santé mentale', titre: 'Actions en faveur du bien-être et de la santé mentale des femmes' },
-    { theme: 'Femmes / Santé mentale', titre: 'Programme d\'accompagnement santé mentale (préparation naissance, post-partum, café des mamans)' },
-    { theme: 'Femmes / Santé mentale', titre: 'Promotion « Mon soutien psy » pour la dépression post-partum' }
+    { theme: 'Femmes / Enfants', titre: 'Actions en faveur du bien-être et de la santé mentale des femmes' },
+    { theme: 'Femmes / Enfants', titre: 'Programme d\'accompagnement santé mentale (préparation naissance, post-partum, café des mamans)' },
+    { theme: 'Femmes / Enfants', titre: 'Promotion « Mon soutien psy » pour la dépression post-partum' }
   ]},
   { id: 'bpco', label: 'BPCO', match: [
     { theme: 'BPCO', titre: 'Améliorer le dépistage de la BPCO (spirométries)' },
@@ -2448,7 +2463,7 @@ const PREV_THEMES_BASE = [
     { theme: 'Cancer du sein', titre: 'Prise en charge des patientes présentant un risque' }
   ]},
   { id: 'endometriose', label: 'Endométriose', match: [
-    { theme: 'Endométriose', titre: 'Communication autour du programme gestion de la douleur (endométriose) avec CPTS Santé Seine Essonne' }
+    { theme: 'Femmes / Enfants', titre: 'Communication autour du programme gestion de la douleur (endométriose) avec CPTS Santé Seine Essonne' }
   ]},
   { id: 'etudiants', label: 'Étudiants', match: [
     { theme: 'Cancer col utérus / HPV', titre: 'Sensibilisation HPV patients + PS (avec CPTS Santé Seine Essonne)' },
@@ -2505,6 +2520,8 @@ function actionsForPrevTheme(themeId) {
   matches.forEach(function(m) {
     var found = state.actions.find(function(a) {
       return _prevNorm(a.theme) === _prevNorm(m.theme) && _prevNorm(a.titre) === _prevNorm(m.titre);
+    }) || state.actions.find(function(a) {   // repli : l'intitulé suffit (les thèmes ont pu être regroupés)
+      return _prevNorm(a.titre) === _prevNorm(m.titre);
     });
     if (found) res.push({ id: found.id, titre: found.titre, kind: 'aci' });
   });
@@ -2576,7 +2593,7 @@ const DEFAULT_ACTIONS = [
     libelle:"Nombre de patients fragiles de la CPTS par MT", type:'resultat', unite:"patients fragiles/MT",
     initiale:"548 patients fragiles/MT (au 14/11/2025)", cible:"561 patients fragiles/MT (+13)", budget:3000, prorata:true,
     livrables:["Données CPAM : nombre de patients fragiles par MT"] },
-  { mission:'acces_soins', theme:"Patients sans MT", titre:"Prise en charge des patients sans MT en partenariat (DAC/MAS/CLIC/SPES)",
+  { mission:'acces_soins', theme:"Patients sans MT", refId:'act_ref_patients_sans_mt', cpam:'en_cours', titre:"Prise en charge des patients sans MT en partenariat (DAC/MAS/CLIC/SPES)",
     libelle:"Taux de patients pris en charge", type:'resultat', unite:"%",
     initiale:"", cible:"50% des demandes prises en charge", budget:3000, prorata:true,
     livrables:["Données CPAM et CPTS : liste des patients pris en charge"] },
@@ -2628,7 +2645,7 @@ const DEFAULT_ACTIONS = [
     livrables:["Liste des cabinets médicaux"] },
 
   // SAS / SNP
-  { mission:'acces_soins', theme:"SAS / SNP", titre:"Participation à la gouvernance du SAS (COPIL, association Ville/SAS)",
+  { mission:'acces_soins', theme:"SAS / SNP", refId:'act_ref_sas_gouvernance', cpam:'en_cours', titre:"Participation à la gouvernance du SAS (COPIL, association Ville/SAS)",
     libelle:"Participation à la gouvernance SAS", type:'resultat', unite:"",
     initiale:"", cible:"Participation régulière COPIL + présence association", budget:1000, prorata:false,
     livrables:["Feuille d'émargement","CR de CA"] },
@@ -2692,7 +2709,7 @@ const DEFAULT_ACTIONS = [
     livrables:["Supports","Liste des participants","Bilan annuel"] },
 
   // BPCO
-  { mission:'parcours', theme:"BPCO", titre:"Améliorer le dépistage de la BPCO (spirométries)",
+  { mission:'parcours', theme:"BPCO", refId:'act_ref_bpco_spirometrie', cpam:'en_cours', titre:"Améliorer le dépistage de la BPCO (spirométries)",
     libelle:"Nombre de spirométries réalisées (45 ans+)", type:'resultat', unite:"actes",
     initiale:"373 dépistages cumulés (CPAM 350 + CPTS 23, 01/11/2024-31/10/2025)", cible:"Augmentation", budget:1000, prorata:false,
     livrables:["Données CPAM","Liste anonymisée des patients dépistés"] },
@@ -2720,41 +2737,45 @@ const DEFAULT_ACTIONS = [
     libelle:"Réunions d'échanges avec RKBE + formalisation partenariat", type:'resultat', unite:"",
     initiale:"", cible:"Réunions d'échanges en vue d'un engagement réciproque", budget:1500, prorata:false,
     livrables:["CR de réunions"] },
+  { mission:'parcours', theme:"BPCO", refId:'act_ref_bpco_rkbe_patients', cpam:'a_lancer', titre:"Patients inclus dans le parcours (partenariat RKBE)",
+    libelle:"Nombre de patients inclus dans le parcours conformément au partenariat mis en place", type:'suivi', unite:"patients",
+    initiale:"", cible:"10 patients inclus", budget:0, prorata:false,
+    livrables:["Liste anonymisée des patients inclus"] },
   { mission:'parcours', theme:"BPCO", titre:"Parcours sécurisé de sortie d'hospitalisation BPCO (CHSF + PRADO)",
     libelle:"Collaboration CHSF + PRADO autour de la sortie d'hospitalisation", type:'resultat', unite:"",
     initiale:"", cible:"Parcours sécurisé formalisé", budget:3000, prorata:false,
     livrables:["CR des échanges","Parcours sécurisé formalisé"] },
 
   // Femmes / Enfants
-  { mission:'parcours', theme:"Femmes / Santé mentale", titre:"Actions en faveur du bien-être et de la santé mentale des femmes",
+  { mission:'parcours', theme:"Femmes / Enfants", refId:'act_ref_femmes_bienetre', cpam:'realise', titre:"Actions en faveur du bien-être et de la santé mentale des femmes",
     libelle:"Nombre d'actions en faveur du bien-être et santé mentale des femmes", type:'resultat', unite:"actions",
     initiale:"", cible:"2 actions a minima", budget:3000, prorata:false,
     livrables:["Bilan annuel","Supports et modes de communication"] },
-  { mission:'parcours', theme:"Femmes / Santé mentale", titre:"Programme d'accompagnement santé mentale (préparation naissance, post-partum, café des mamans)",
+  { mission:'parcours', theme:"Femmes / Enfants", refId:'act_ref_femmes_programme', cpam:'en_cours', titre:"Programme d'accompagnement santé mentale (préparation naissance, post-partum, café des mamans)",
     libelle:"Nombre de programmes / ateliers + bénéficiaires", type:'resultat', unite:"ateliers",
     initiale:"", cible:"2 ateliers a minima · 30 femmes bénéficiaires", budget:3000, prorata:true,
     livrables:["Programme des ateliers","Supports utilisés","Liste anonymisée des participantes"] },
-  { mission:'parcours', theme:"Femmes / Santé mentale", titre:"Promotion « Mon soutien psy » pour la dépression post-partum",
+  { mission:'parcours', theme:"Femmes / Enfants", titre:"Promotion « Mon soutien psy » pour la dépression post-partum",
     libelle:"Nombre d'actions de communication", type:'suivi', unite:"actions",
     initiale:"", cible:"1 action de communication a minima", budget:0, prorata:false,
     livrables:["Supports et modes de communication"] },
-  { mission:'parcours', theme:"Perturbateurs endocriniens", titre:"Projet « Territoire sans perturbateurs endocriniens »",
+  { mission:'parcours', theme:"Femmes / Enfants", titre:"Projet « Territoire sans perturbateurs endocriniens »",
     libelle:"Nombre d'actions de sensibilisation grand public + formation PS", type:'resultat', unite:"actions",
     initiale:"", cible:"2 actions a minima (1 grand public + 1 formation PS)", budget:3000, prorata:false,
     livrables:["Bilan annuel","Supports et modes de communication"] },
-  { mission:'parcours', theme:"Enfants / Repérage", titre:"Sensibilisation au repérage des troubles visuels et/ou du langage en milieu scolaire",
+  { mission:'parcours', theme:"Femmes / Enfants", titre:"Sensibilisation au repérage des troubles visuels et/ou du langage en milieu scolaire",
     libelle:"Échanges familles + établissements scolaires", type:'resultat', unite:"",
     initiale:"", cible:"Organisation d'échanges familles/établissements", budget:1000, prorata:false,
     livrables:["Liste des établissements/familles rencontrés","Bilan des rencontres"] },
-  { mission:'parcours', theme:"Pédiatrie hospitalière", titre:"Circuit d'hospitalisation directe avec la pédiatrie hospitalière",
+  { mission:'parcours', theme:"Femmes / Enfants", titre:"Circuit d'hospitalisation directe avec la pédiatrie hospitalière",
     libelle:"Élaboration circuit d'adressage et d'hospitalisation directe", type:'suivi', unite:"",
     initiale:"", cible:"Échanges et rencontres + circuit rédigé", budget:0, prorata:false,
     livrables:["Circuit rédigé","CR des échanges"] },
-  { mission:'parcours', theme:"Endométriose", titre:"Communication autour du programme gestion de la douleur (endométriose) avec CPTS Santé Seine Essonne",
+  { mission:'parcours', theme:"Femmes / Enfants", titre:"Communication autour du programme gestion de la douleur (endométriose) avec CPTS Santé Seine Essonne",
     libelle:"Nombre d'actions d'information et de communication", type:'suivi', unite:"actions",
     initiale:"", cible:"1 action a minima inter-CPTS", budget:0, prorata:false,
     livrables:["Bilan annuel","Supports","Rôle de chaque CPTS"] },
-  { mission:'parcours', theme:"Chirurgie pédiatrique", titre:"Promotion de la nouvelle activité de chirurgie pédiatrique du CHSF",
+  { mission:'parcours', theme:"Femmes / Enfants", titre:"Promotion de la nouvelle activité de chirurgie pédiatrique du CHSF",
     libelle:"Nombre d'actions de promotion", type:'resultat', unite:"actions",
     initiale:"", cible:"2 actions de promotion", budget:3000, prorata:false,
     livrables:["Bilan annuel","Supports et modes de communication"] },
@@ -2975,6 +2996,8 @@ const ACTIONS_ATTRIBUTIONS = {
   "Sensibilisation patients fumeurs et orientation vers les PS":
     { pilote: ['Yoanna'] },
   "Partenariat avec le réseau RKBE (kinésithérapie respiratoire)":
+    { pilote: ['Yoanna'], appui: ['Margaux'] },
+  "Patients inclus dans le parcours (partenariat RKBE)":
     { pilote: ['Yoanna'], appui: ['Margaux'] },
   "Parcours sécurisé de sortie d'hospitalisation BPCO (CHSF + PRADO)":
     { pilote: ['Margaux'] },
@@ -3290,7 +3313,7 @@ let state = (EMBED_MODE && _pilotageParentState) ? _pilotageParentState : loadSt
       if (a.statut !== auto) { a.statut = auto; changed = true; }
     }
   });
-  if (changed) { try { saveState(); } catch(e) {} }
+  if (changed || migrateReferentielV9.dirty) { try { saveState(); } catch(e) {} }
 })();
 let currentView = 'dashboard';
 
@@ -3476,7 +3499,7 @@ function defaultState() {
     actions: DEFAULT_ACTIONS.map((a,i) => {
       var attr = resolveActionAttribution(a.titre);
       return {
-      id: makeId('act'),
+      id: a.refId || makeId('act'),
       mission: a.mission,
       theme: a.theme || '',
       titre: a.titre,
@@ -3614,6 +3637,73 @@ function defaultState() {
   };
 }
 
+/* ============================================================
+   MIGRATION v9 (octobre 2026) — rattrapage du référentiel ACI (Avenant 8) et regroupement « Femmes / Enfants ».
+   RÈGLE : AJOUT et RENOMMAGE de thème uniquement — aucune donnée n'est supprimée ni modifiée (statuts, tâches,
+   livrables, budgets, saisies conservés). Exécutée UNE seule fois par jeu de données (drapeau _migrations).
+   Les actions ajoutées ont un identifiant fixe (refId) : pas de doublon si plusieurs postes migrent puis fusionnent.
+   ============================================================ */
+function makeActionFromDefault(d, now) {
+  var attr = resolveActionAttribution(d.titre);
+  return {
+    id: d.refId || makeId('act'),
+    mission: d.mission,
+    theme: d.theme || '',
+    titre: d.titre,
+    description: '',
+    statut: 'a_lancer',
+    statutCPAM: d.cpam || 'a_lancer',
+    echeance: '',
+    owner: attr.owner || '',
+    coOwners: attr.coOwners || [],
+    attributionRoles: attr.roles || {},
+    indicateur: {
+      libelle: d.libelle || '', type: d.type || 'resultat', unite: d.unite || '',
+      initiale: d.initiale || '', cible: d.cible || '', actuelle: ''
+    },
+    budget: { variable_alloue: d.budget || 0 },
+    livrables: (d.livrables || []).map(function(l, k) {
+      return { id: (d.refId ? d.refId.replace(/^act_/, 'liv_') : makeId('liv')) + '_' + k, label: l, statut: 'a_faire', dateRealisation: '' };
+    }),
+    tasks: [], links: [],
+    updatedAt: now, createdAt: now
+  };
+}
+function migrateReferentielV9(st) {
+  // Constantes LOCALES : cette fonction est appelée par loadState() avant l'initialisation des 'var' globales plus bas.
+  var REF_MIGRATION_V9 = 'v9_referentiel_avenant8_femmes_enfants';
+  var FEMMES_ENFANTS_THEMES_ANCIENS = ['Femmes / Santé mentale','Perturbateurs endocriniens','Enfants / Repérage','Pédiatrie hospitalière','Endométriose','Chirurgie pédiatrique'];
+  if (!st || !Array.isArray(st.actions)) return false;
+  if (!st._migrations || typeof st._migrations !== 'object') st._migrations = {};
+  if (st._migrations[REF_MIGRATION_V9]) return false;
+  var now = Date.now(), changed = false;
+  var deleted = (st._deleted && typeof st._deleted === 'object') ? st._deleted : {};
+  // 1) Un seul thème « Femmes / Enfants » pour tout le parcours (les actions ne sont pas touchées autrement)
+  st.actions.forEach(function(a) {
+    if (a && a.mission === 'parcours' && FEMMES_ENFANTS_THEMES_ANCIENS.indexOf(a.theme) !== -1) {
+      a.theme = 'Femmes / Enfants'; a.updatedAt = now; changed = true;
+    }
+  });
+  // 2) Ajout des actions de l'avenant 8 absentes (à leur place dans l'ordre du référentiel)
+  var norm = function(t) { return String(t || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+  DEFAULT_ACTIONS.forEach(function(d, i) {
+    if (!d.refId) return;
+    var exists = st.actions.some(function(a) { return a && (a.id === d.refId || norm(a.titre) === norm(d.titre)); });
+    if (exists || deleted[d.refId]) return;
+    var pos = -1;
+    for (var j = i - 1; j >= 0 && pos < 0; j--) {
+      var prevT = norm(DEFAULT_ACTIONS[j].titre);
+      for (var k = 0; k < st.actions.length; k++) { if (st.actions[k] && norm(st.actions[k].titre) === prevT) { pos = k; break; } }
+    }
+    var act = makeActionFromDefault(d, now);
+    if (pos >= 0) st.actions.splice(pos + 1, 0, act); else st.actions.push(act);
+    changed = true;
+  });
+  st._migrations[REF_MIGRATION_V9] = now;
+  migrateReferentielV9.dirty = true;   // sauvegarde immédiate au démarrage (cf. refreshAutoStatutsAtStart)
+  return true;
+}
+
 function loadState() {
   try {
     const raw = storageGet(STORAGE_KEY);
@@ -3683,6 +3773,9 @@ function loadState() {
             if (a && _renames[a.titre]) { a.titre = _renames[a.titre]; }
           });
         }
+
+        // Migration v9 — rattrapage référentiel (ajout uniquement) + thème « Femmes / Enfants »
+        migrateReferentielV9(parsed);
 
         // Migration v7a — Injection des attributions selon les fiches de mission
         // pour les actions qui n'ont pas encore d'owner défini
@@ -4363,6 +4456,8 @@ function mergeStates(localState, remoteState) {
     }
   });
   merged._deletedTasks = deletedTasks;
+  // Drapeaux de migration : ne jamais en perdre lors d'une fusion (évite de rejouer une migration)
+  merged._migrations = Object.assign({}, remoteState._migrations || {}, localState._migrations || {});
   // Fusionner les listes d'entités par id/updatedAt, en excluant les supprimées
   merged.actions      = mergeEntityList(localState.actions, remoteState.actions, deletedMap, deletedTasks);
   merged.projets      = mergeEntityList(localState.projets, remoteState.projets, deletedMap, deletedTasks);
@@ -4830,6 +4925,7 @@ function importJSON(event){
       if (!parsed || !Array.isArray(parsed.actions)) throw new Error('Fichier invalide');
       if (!confirm("Charger cette sauvegarde ? L'état actuel sera remplacé (un snapshot sera conservé).")) return;
       state = parsed;
+      migrateReferentielV9(state);
       saveState();
       showView(currentView);
       toast('📥 Sauvegarde importée : ' + file.name);
@@ -5971,12 +6067,14 @@ function renderMissionsContent() {
                   <td class="num" style="font-size:12px" title="${derniereMajDep ? 'Dernière dépense : ' + fmt.date(derniereMajDep) : 'Aucune dépense enregistrée'}">
                     <span style="font-weight:600">${fmt.eur(budgetDeploye)}</span>
                   </td>
-                  <td class="pilotage-edit-menu-wrap">
+                  <td>
+                    <span class="pilotage-edit-menu-wrap" style="display:inline-block">
                     <button class="btn btn-sm" onclick="togglePilotageEditMenu(event, '${a.id}')" title="Modifier">✏️ ▾</button>
                     <div class="pilotage-edit-menu" id="edit-menu-${a.id}">
                       <button type="button" onclick="openActionModal('${a.id}','descriptif'); closePilotageEditMenus();">📋 Descriptif</button>
                       <button type="button" onclick="openActionModal('${a.id}','planification'); closePilotageEditMenus();">📅 Planification</button>
                     </div>
+                    </span>
                   </td>
                 </tr>
               `;
@@ -6111,12 +6209,14 @@ function renderMissionsContent() {
                         <td class="num" style="font-size:12px" title="${derniereMajDep ? 'Dernière dépense : ' + fmt.date(derniereMajDep) : 'Aucune dépense enregistrée'}">
                           <span style="font-weight:600">${fmt.eur(budgetDeploye)}</span>
                         </td>
-                        <td class="pilotage-edit-menu-wrap">
+                        <td>
+                          <span class="pilotage-edit-menu-wrap" style="display:inline-block">
                           <button class="btn btn-sm" onclick="togglePilotageEditMenu(event, '${a.id}')" title="Modifier">✏️ ▾</button>
                           <div class="pilotage-edit-menu" id="edit-menu-${a.id}">
                             <button type="button" onclick="openActionModal('${a.id}','descriptif'); closePilotageEditMenus();">📋 Descriptif</button>
                             <button type="button" onclick="openActionModal('${a.id}','planification'); closePilotageEditMenus();">📅 Planification</button>
                           </div>
+                          </span>
                         </td>
                       </tr>
                     `;
@@ -6170,7 +6270,28 @@ function togglePilotageEditMenu(ev, id) {
   if (!menu) return;
   var wasOpen = menu.classList.contains('show');
   closePilotageEditMenus();
-  if (!wasOpen) menu.classList.add('show');
+  if (!wasOpen) {
+    menu.classList.remove('up');
+    menu.classList.add('show');
+    placePilotageEditMenu(menu);
+  }
+}
+// Le menu est rogné par la carte qui le contient (overflow:hidden) et peut sortir de l'écran :
+// s'il ne tient pas en dessous du bouton, on l'ouvre au-dessus (si cela tient mieux).
+function placePilotageEditMenu(menu) {
+  var m = menu.getBoundingClientRect();
+  var top = 0, bottom = window.innerHeight;
+  for (var e = menu.parentElement; e && e !== document.documentElement; e = e.parentElement) {
+    var cs = getComputedStyle(e);
+    if (cs.overflowY !== 'visible' || cs.overflow !== 'visible') {
+      var r = e.getBoundingClientRect();
+      top = Math.max(top, r.top); bottom = Math.min(bottom, r.bottom);
+    }
+  }
+  if (m.bottom <= bottom + 0.5) return;              // tient en dessous : rien à faire
+  menu.classList.add('up');
+  var u = menu.getBoundingClientRect();
+  if (u.top < top - 0.5 && m.bottom - bottom < top - u.top) menu.classList.remove('up');  // pire en haut : on garde en bas
 }
 function closePilotageEditMenus() {
   document.querySelectorAll('.pilotage-edit-menu.show').forEach(function(m){ m.classList.remove('show'); });
@@ -8880,6 +9001,11 @@ function renderModeOp() {
       '<p><strong>Report automatique</strong> : les taches non realisees du mois precedent peuvent etre reportees en un clic.</p>' +
       '<p>Changer le statut d\'un livrable a Realise horodate automatiquement.</p>'
     ],
+    ['📎 Pieces a fournir, documents et communications (fiche action)',
+      '<p>Dans la fiche action, onglet <strong>Planification &rarr; Documents &amp; liens</strong>, la checklist <strong>Pieces a fournir</strong> permet de lister tous les documents a produire (compte rendu signe, affiche, feuille d\'emargement…). Le bouton <strong>&darr; Reprendre les livrables attendus</strong> copie ceux de l\'onglet Descriptif. Cochez une piece quand elle est deposee : la date est enregistree. Le bouton <strong>&#9729;&#65039;</strong> d\'une ligne choisit un fichier OneDrive, l\'ajoute a la liste des documents et coche la piece.</p>' +
+      '<p>Cette checklist est independante des « Livrables attendus » de l\'avenant : elle n\'influence pas le taux d\'atteinte.</p>' +
+      '<p><strong>Communication</strong> : « + Ajouter une communication » cree une carte dont le titre est a saisir immediatement. Le bouton <strong>Choisir un fichier depuis OneDrive</strong> de la carte associe le document : il apparait dans Documents &amp; liens sous le titre de la communication et se renomme si le titre change. <strong>Dissocier</strong> detache le document de la communication sans le supprimer de la liste.</p>'
+    ],
     ['💶 Saisir une depense',
       '<p>Dans Budget mensuel, cliquez sur <strong>+ Saisir une depense</strong>. Renseignez la date, le montant, la mission, la part (fixe ou variable), le poste et le fournisseur.</p>' +
       '<p>La depense s\'integre immediatement dans le tableau mensuel et l\'onglet Equilibre financier.</p>'
@@ -9706,6 +9832,7 @@ function renderLexique() {
     ['MT', "Médecin Traitant."],
     ['Part fixe', "Financement annuel garanti de la mission, quel que soit le niveau de résultats atteints."],
     ['Part variable', "Financement conditionné au niveau d'atteinte des objectifs contractuels. Peut être proratisé (*)."],
+    ['Pièces à fournir', "Checklist opérationnelle d'une fiche action (Documents & liens) : documents à produire et à déposer, cochés au fur et à mesure. Distincte des livrables attendus de l'avenant."],
     ['PRADO', "Programme de Retour À DOmicile — dispositif de l'Assurance Maladie pour la sortie d'hospitalisation."],
     ['PS', "Professionnel de Santé."],
     ['QPV', "Quartier Prioritaire de la politique de la Ville."],
@@ -10547,6 +10674,7 @@ function updateCommuField(id, field, value) {
   var s = state.commu.find(function(x) { return x.id === id; });
   if (!s) return;
   s[field] = value;
+  if (field === 'label') syncCommuDocLabel(s);
   saveState();
   // Pas de re-render complet pour les champs texte/select inline
 }
@@ -10640,7 +10768,7 @@ function renderActionCommuList(actionId) {
     var isDiffuse = s.phases.diffusion;
     html += '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;' + (isDiffuse ? 'opacity:.55' : '') + '">';
     html += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">';
-    html += '<input type="text" value="' + escapeHtml(s.label) + '" onchange="updateCommuFieldFromAction(\'' + s.id + '\',\'label\',this.value,\'' + actionId + '\')" style="flex:1;padding:4px 6px;border:1px solid var(--line);border-radius:5px;font-size:12px;font-weight:600"/>';
+    html += '<input type="text" value="' + escapeHtml(s.label) + '" data-commu-title="' + s.id + '" onchange="updateCommuFieldFromAction(\'' + s.id + '\',\'label\',this.value,\'' + actionId + '\')" style="flex:1;padding:4px 6px;border:1px solid var(--line);border-radius:5px;font-size:12px;font-weight:600"/>';
     html += '<select onchange="updateCommuFieldFromAction(\'' + s.id + '\',\'categorie\',this.value,\'' + actionId + '\')" style="padding:4px 6px;border:1px solid var(--line);border-radius:5px;font-size:11px">';
     Object.entries(COMMU_CATS).forEach(function(entry) {
       html += '<option value="' + entry[0] + '"' + (s.categorie === entry[0] ? ' selected' : '') + '>' + entry[1] + '</option>';
@@ -10657,17 +10785,115 @@ function renderActionCommuList(actionId) {
     });
     html += '<span style="margin-left:auto;font-size:11px;font-weight:600;color:' + (isDiffuse ? 'var(--ok)' : 'var(--teal-d)') + '">' + avt + '%</span>';
     html += '</div>';
+    html += commuDocHtml(s, actionId);
     html += '</div>';
   });
   el.innerHTML = html;
 }
 
+/* --- Document (OneDrive) associé à une communication ---
+   s.doc = { name, url, fileId, driveId, linkId }. Le document apparaît dans « Documents & liens »
+   (ligne synchronisée, nommée d'après le TITRE de la communication) et la ligne suit les renommages. */
+function commuLinkLabel(s) { return '📣 ' + (s.label || 'Communication'); }
+
+function commuDocHtml(s, actionId) {
+  var h = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px;padding-top:7px;border-top:1px dashed var(--line)">';
+  var bs = 'padding:4px 10px;border:1px solid var(--teal);border-radius:7px;background:var(--teal-p);font-size:11.5px;font-weight:600;color:var(--teal-d);cursor:pointer';
+  if (s.doc && s.doc.url) {
+    h += '<span style="font-size:11.5px;display:flex;align-items:center;gap:5px;min-width:0">📎 <a href="' + escapeHtml(s.doc.url) + '" target="_blank" rel="noopener" title="' + escapeHtml(s.doc.name || '') + '" style="color:var(--teal-d);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:340px">' + escapeHtml(s.doc.name || 'Document') + '</a></span>';
+    h += '<button type="button" class="btn btn-sm" onclick="pickCommuDoc(\'' + s.id + '\',\'' + actionId + '\')">Changer</button>';
+    h += '<button type="button" class="btn btn-sm btn-danger-text" title="Dissocier le document de cette communication (il reste dans Documents &amp; liens)" onclick="detachCommuDoc(\'' + s.id + '\',\'' + actionId + '\')">Dissocier</button>';
+  } else {
+    h += '<button type="button" style="' + bs + '" onclick="pickCommuDoc(\'' + s.id + '\',\'' + actionId + '\')">☁️ Choisir un fichier depuis OneDrive</button>';
+    h += '<span style="font-size:11px;color:var(--ink-mute)">Le document sera listé dans « Documents &amp; liens » sous le titre de la communication.</span>';
+  }
+  return h + '</div>';
+}
+
+// Place (ou remplace) la ligne « Documents & liens » liée à la communication
+function commuPlaceDocRow(s) {
+  var host = document.getElementById('links-list');
+  if (!host || !s.doc) return;
+  var rows = Array.prototype.slice.call(host.querySelectorAll('.link-row'));
+  var old = rows.find(function(r){ return r.dataset.commuId === s.id; })
+         || rows.find(function(r){   // ancienne ligne vide « Support — … » créée avant cette version
+              return !r.dataset.commuId && !r.querySelector('.link-url').value.trim()
+                  && r.querySelector('.link-label').value.trim() === ('📣 Support — ' + s.label);
+            });
+  appendLinkRow({ id: s.doc.linkId || makeId('lnk'), label: commuLinkLabel(s), url: s.doc.url, fileId: s.doc.fileId || '', driveId: s.doc.driveId || '', commuId: s.id });
+  var fresh = host.lastElementChild;
+  if (old && fresh && old !== fresh) host.replaceChild(fresh, old);
+}
+
+// À l'ouverture / avant enregistrement de la fiche : tout document de communication doit figurer dans la liste
+function ensureCommuDocRows(actionId) {
+  var host = document.getElementById('links-list');
+  if (!host || !actionId) return;
+  (state.commu || []).forEach(function(s) {
+    if (s.actionId !== actionId || !s.doc || !s.doc.url) return;
+    if (host.querySelector('.link-row[data-commu-id="' + s.id + '"]')) return;
+    var same = Array.prototype.find.call(host.querySelectorAll('.link-row'), function(r){ return r.querySelector('.link-url').value.trim() === s.doc.url; });
+    if (same) same.dataset.commuId = s.id; else commuPlaceDocRow(s);
+  });
+}
+
+function pickCommuDoc(id, actionId) {
+  var s = (state.commu || []).find(function(x){ return x.id === id; });
+  if (!s) return;
+  var first = true;
+  openOneDrivePicker(function(picked) {
+    if (!first) return;      // un seul document par communication
+    first = false;
+    s.doc = { name: picked.name, url: picked.webUrl, fileId: picked.id, driveId: picked.driveId || '', linkId: (s.doc && s.doc.linkId) || makeId('lnk') };
+    commuPlaceDocRow(s);
+    saveState();
+    renderActionCommuList(actionId);
+    toast('✅ Document associé — ajouté dans « Documents & liens »');
+  });
+}
+
+function detachCommuDoc(id, actionId) {
+  var s = (state.commu || []).find(function(x){ return x.id === id; });
+  if (!s) return;
+  s.doc = null;
+  document.querySelectorAll('#links-list .link-row[data-commu-id="' + id + '"]').forEach(function(r){
+    if (!r.querySelector('.link-url').value.trim()) r.remove();   // ligne vide : rien à conserver
+    else r.removeAttribute('data-commu-id');                       // document conservé comme simple lien
+  });
+  saveState();
+  renderActionCommuList(actionId);
+  toast('Document dissocié (conservé dans Documents & liens)');
+}
+
+// Retire une ligne de la liste ; si elle était rattachée à une communication, on dissocie aussi la carte
+function removeLinkRow(btn) {
+  var row = btn.parentElement;
+  if (row && row.dataset && row.dataset.commuId) {
+    var s = (state.commu || []).find(function(x){ return x.id === row.dataset.commuId; });
+    if (s && s.doc) { s.doc = null; saveState(); renderActionCommuList(s.actionId); }
+  }
+  if (row) row.remove();
+}
+
+// Le nom de la ligne « Documents & liens » suit le titre de la communication
+function syncCommuDocLabel(s) {
+  var lbl = commuLinkLabel(s);
+  var a = s.actionId ? (state.actions || []).find(function(x){ return x.id === s.actionId; }) : null;
+  if (a && Array.isArray(a.links)) {
+    var ch = false;
+    a.links.forEach(function(l){ if (l.commuId === s.id && l.label !== lbl) { l.label = lbl; ch = true; } });
+    if (ch) a.updatedAt = Date.now();
+  }
+  document.querySelectorAll('#links-list .link-row[data-commu-id="' + s.id + '"] .link-label').forEach(function(i){ i.value = lbl; });
+}
+
 function addCommuSupportFromAction(actionId) {
   if (!actionId) { toast('⚠️ Enregistrez d\'abord l\'action'); return; }
   if (!state.commu) state.commu = [];
-  var label = 'Nouvelle communication — à renommer';
+  var label = 'Nouvelle communication';
+  var newId = makeId('com');
   state.commu.push({
-    id: makeId('com'),
+    id: newId,
     label: label,
     categorie: 'autre',
     responsable: '',
@@ -10677,10 +10903,12 @@ function addCommuSupportFromAction(actionId) {
     note: '',
     actionId: actionId
   });
-  if (typeof appendLinkRow === 'function') appendLinkRow({ id: makeId('lnk'), label: '📣 Support — ' + label, url: '' });
+  if (typeof appendLinkRow === 'function') appendLinkRow({ id: makeId('lnk'), label: '📣 ' + label, url: '', commuId: newId });
   saveState();
   renderActionCommuList(actionId);
-  toast('Communication ajoutée — déposez son support dans « Documents & liens »');
+  var ti = document.querySelector('#action-commu-list input[data-commu-title="' + newId + '"]');
+  if (ti) { ti.focus(); ti.select(); }   // saisir directement le titre
+  toast('Communication ajoutée — saisissez son titre, puis choisissez le fichier OneDrive');
 }
 
 function toggleCommuPhaseFromAction(id, phase, checked, actionId) {
@@ -10690,7 +10918,8 @@ function toggleCommuPhaseFromAction(id, phase, checked, actionId) {
 
 function updateCommuFieldFromAction(id, field, value, actionId) {
   updateCommuField(id, field, value);
-  renderActionCommuList(actionId);
+  // Pas de re-rendu de la carte : titre et catégorie ne changent pas son affichage, et redessiner pendant
+  // le clic suivant (ex. « Choisir un fichier ») ferait perdre ce clic.
 }
 
 function deleteCommuSupportFromAction(id, actionId) {
@@ -13048,6 +13277,8 @@ function openActionModal(id, tab) {
     const linksEl = document.getElementById('links-list');
     linksEl.innerHTML = '';
     (a.links||[]).forEach(lk => appendLinkRow(lk));
+    ensureCommuDocRows(a.id);
+    renderPiecesList(a.pieces);
 
     // --- Planification ---
     var plan = a.planif || {};
@@ -13099,6 +13330,7 @@ function openActionModal(id, tab) {
     document.getElementById('a-statut-cpam').value = 'a_lancer';
     document.getElementById('livrables-list').innerHTML = '';
     document.getElementById('links-list').innerHTML = '';
+    renderPiecesList([]);
     // --- Planification (création) ---
     _evtBlocks = [];
     renderEvtBlocks();
@@ -13190,13 +13422,18 @@ function saveAction() {
     reunionSubtasksToTasks(r).forEach(function(st){ tasks.push(st); });
   });
 
+  if (existingId) ensureCommuDocRows(existingId);
   const links = [];
   document.querySelectorAll('#links-list .link-row').forEach(row => {
-    const label = row.querySelector('.link-label').value.trim();
+    let label = row.querySelector('.link-label').value.trim();
     const url = row.querySelector('.link-url').value.trim();
     if (!label && !url) return;
-    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url, fileId: row.dataset.fileId || '', driveId: row.dataset.driveId || '' });
+    // Ligne rattachée à une communication : le nom suit toujours le titre de la communication
+    const cm = row.dataset.commuId ? (state.commu || []).find(x => x.id === row.dataset.commuId) : null;
+    if (cm) label = commuLinkLabel(cm);
+    links.push({ id: row.dataset.linkId || makeId('lnk'), label, url, fileId: row.dataset.fileId || '', driveId: row.dataset.driveId || '', commuId: cm ? cm.id : '' });
   });
+  const pieces = collectPieces();
 
   // Attribution depuis le modal
   var owner = document.getElementById('a-owner').value;
@@ -13239,7 +13476,7 @@ function saveAction() {
       evenements: evenements,
       reunions: exportReunionBlocks()
     },
-    livrables, tasks, links,
+    livrables, tasks, links, pieces,
     updatedAt: Date.now(),
     createdAt: existingId ? (state.actions.find(x=>x.id===existingId)||{}).createdAt || Date.now() : Date.now()
   };
@@ -13312,6 +13549,7 @@ function appendLinkRow(lk) {
   const div = document.createElement('div');
   div.className = 'link-row';
   div.dataset.linkId = lk ? lk.id : makeId('lnk');
+  if (lk && lk.commuId) div.dataset.commuId = lk.commuId;   // ligne synchronisée avec une communication
   if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
   if (lk && lk.driveId) div.dataset.driveId = lk.driveId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
@@ -13329,7 +13567,7 @@ function appendLinkRow(lk) {
       style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px"/>
     ${pvBtn}
     ${dlBtn}
-    <button type="button" class="btn btn-sm btn-danger-text" onclick="this.parentElement.remove()">×</button>
+    <button type="button" class="btn btn-sm btn-danger-text" onclick="removeLinkRow(this)">×</button>
   `;
   document.getElementById('links-list').appendChild(div);
 }
@@ -13416,6 +13654,129 @@ function makeDropZone(containerId, listId, subfolder, appendFn) {
 }
 
 function addLink() { appendLinkRow(null); }
+
+/* ============================================================
+   PIÈCES À FOURNIR — checklist opérationnelle par fiche action
+   Sert à lister les documents à produire/déposer dans « Documents & liens » et à les cocher une fois déposés.
+   Stockage : action.pieces = [{ id, label, done, doneAt, docName, linkId }]
+   ============================================================ */
+function _todayISO() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function _fmtFR(iso) { var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || ''); return m ? (m[3] + '/' + m[2] + '/' + m[1]) : ''; }
+
+function renderPiecesList(pieces) {
+  var list = document.getElementById('pieces-list');
+  if (!list) return;
+  list.innerHTML = '';
+  (pieces || []).forEach(function(p){ appendPieceRow(p); });
+  updatePiecesCount();
+}
+
+function appendPieceRow(p) {
+  var list = document.getElementById('pieces-list');
+  if (!list) return null;
+  p = (p && typeof p === 'object' && p.id) ? p : { id: makeId('pce'), label: '', done: false, doneAt: '', docName: '', linkId: '' };
+  var div = document.createElement('div');
+  div.className = 'piece-row';
+  div.dataset.pieceId = p.id;
+  div.dataset.doneAt = p.doneAt || '';
+  div.dataset.docName = p.docName || '';
+  div.dataset.linkId = p.linkId || '';
+  div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface)';
+  div.innerHTML =
+    '<input type="checkbox" class="piece-done" style="cursor:pointer;width:16px;height:16px;flex:none" title="Cocher quand la pièce a été déposée dans Documents & liens">' +
+    '<input class="piece-label" type="text" placeholder="Pièce à fournir… (ex. compte rendu signé, affiche finale, feuille d\'émargement)" style="flex:1;min-width:0;padding:5px 7px;border:1px solid var(--line);border-radius:5px;font-size:12.5px">' +
+    '<span class="piece-meta" style="font-size:10.5px;color:var(--ink-mute);white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis"></span>' +
+    '<button type="button" class="btn btn-sm piece-od" title="Associer un fichier OneDrive : il est ajouté à la liste de documents et la pièce est cochée">☁️</button>' +
+    '<button type="button" class="btn btn-sm btn-danger-text piece-del" title="Retirer cette pièce de la liste">×</button>';
+  div.querySelector('.piece-label').value = p.label || '';
+  div.querySelector('.piece-done').checked = !!p.done;
+  div.querySelector('.piece-done').addEventListener('change', function(){
+    div.dataset.doneAt = this.checked ? _todayISO() : '';
+    refreshPieceRow(div);
+  });
+  div.querySelector('.piece-od').addEventListener('click', function(){ pickPieceDoc(div); });
+  div.querySelector('.piece-del').addEventListener('click', function(){ div.remove(); updatePiecesCount(); });
+  list.appendChild(div);
+  refreshPieceRow(div);
+  return div;
+}
+
+function refreshPieceRow(div) {
+  var done = div.querySelector('.piece-done').checked;
+  var lab = div.querySelector('.piece-label');
+  lab.style.textDecoration = done ? 'line-through' : 'none';
+  lab.style.opacity = done ? '.65' : '1';
+  div.style.background = done ? 'var(--ok-p)' : 'var(--surface)';
+  var bits = [];
+  if (done && div.dataset.doneAt) bits.push('✓ ' + _fmtFR(div.dataset.doneAt));
+  if (div.dataset.docName) bits.push('📎 ' + div.dataset.docName);
+  var meta = div.querySelector('.piece-meta');
+  meta.textContent = bits.join(' · ');
+  meta.title = bits.join(' · ');
+  updatePiecesCount();
+}
+
+function updatePiecesCount() {
+  var el = document.getElementById('pieces-count');
+  if (!el) return;
+  var rows = document.querySelectorAll('#pieces-list .piece-row');
+  var done = document.querySelectorAll('#pieces-list .piece-done:checked').length;
+  el.textContent = rows.length ? (done + '/' + rows.length + ' fournie' + (done > 1 ? 's' : '')) : '';
+}
+
+function addPiece() {
+  var d = appendPieceRow(null);
+  updatePiecesCount();
+  if (d) d.querySelector('.piece-label').focus();
+}
+
+function pickPieceDoc(div) {
+  var first = true;
+  openOneDrivePicker(function(picked) {
+    var lid = makeId('lnk');
+    appendLinkRow({ id: lid, label: picked.name, url: picked.webUrl, fileId: picked.id, driveId: picked.driveId || '' });
+    if (!first) return;
+    first = false;
+    var lab = div.querySelector('.piece-label');
+    if (!lab.value.trim()) lab.value = picked.name;
+    div.dataset.linkId = lid;
+    div.dataset.docName = picked.name;
+    div.querySelector('.piece-done').checked = true;
+    if (!div.dataset.doneAt) div.dataset.doneAt = _todayISO();
+    refreshPieceRow(div);
+  });
+}
+
+function importPiecesFromLivrables() {
+  var norm = function(t){ return String(t || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+  var have = {};
+  document.querySelectorAll('#pieces-list .piece-label').forEach(function(i){ have[norm(i.value)] = true; });
+  var added = 0;
+  document.querySelectorAll('#livrables-list .liv-label').forEach(function(i){
+    var t = i.value.trim();
+    if (!t || have[norm(t)]) return;
+    var d = appendPieceRow(null);
+    d.querySelector('.piece-label').value = t;
+    have[norm(t)] = true; added++;
+  });
+  updatePiecesCount();
+  toast(added ? ('↧ ' + added + ' livrable' + (added > 1 ? 's' : '') + ' repris') : 'Aucun nouveau livrable à reprendre');
+}
+
+function collectPieces() {
+  var out = [];
+  document.querySelectorAll('#pieces-list .piece-row').forEach(function(row){
+    var label = row.querySelector('.piece-label').value.trim();
+    if (!label) return;
+    var done = row.querySelector('.piece-done').checked;
+    out.push({
+      id: row.dataset.pieceId || makeId('pce'), label: label, done: done,
+      doneAt: done ? (row.dataset.doneAt || _todayISO()) : '',
+      docName: row.dataset.docName || '', linkId: row.dataset.linkId || ''
+    });
+  });
+  return out;
+}
 
 /* ============================================================
    12. MODAL : COLLABORATEUR
