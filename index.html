@@ -1213,6 +1213,7 @@ body.pilotage-embed .pilotage-fab-wrap { display: none !important; }
         <input type="file" accept=".json" onchange="importJSON(event)" style="display:none;">
       </label>
       <button class="btn-snapshot" onclick="openSnapshotsPanel()" title="Historique des snapshots quotidiens">🕒 Historique</button>
+      <button onclick="openLinksRepair()" id="links-repair-btn" title="Vérifier tous les documents du Drive et réparer les liens qui affichent « 404 »">🔗 Réparer les liens</button>
     </div>
   </div>
 
@@ -2329,6 +2330,23 @@ body.pilotage-embed .pilotage-fab-wrap { display: none !important; }
 <!-- ============================================================
      MODAL : SNAPSHOTS
      ============================================================ -->
+<div class="modal-backdrop" id="liens-repair-modal">
+  <div class="modal" style="max-width:760px">
+    <button class="modal-close" onclick="closeLinksRepair()" aria-label="Fermer">×</button>
+    <div class="modal-header">
+      <h2>🔗 Réparer les liens des documents</h2>
+      <div class="sub">Vérifie chaque document ajouté depuis le Drive et retrouve son lien à jour (les liens « 404 » viennent d'un fichier renommé ou déplacé)</div>
+    </div>
+    <div class="modal-body" id="liens-repair-body"></div>
+    <div class="modal-footer">
+      <span id="liens-repair-info" style="font-size:11.5px;color:var(--ink-mute)"></span>
+      <div class="spacer"></div>
+      <button class="btn" onclick="closeLinksRepair()">Fermer</button>
+      <button class="btn btn-primary" id="liens-repair-apply" style="display:none" onclick="applyLinksRepair()">✔ Appliquer les corrections</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="snapshots-modal">
   <div class="modal" style="max-width:640px">
     <button class="modal-close" onclick="closeSnapshotsPanel()" aria-label="Fermer">×</button>
@@ -4242,7 +4260,7 @@ async function spUploadFile(file, subfolder, onProgress) {
     if (!resp.ok) throw new Error('Upload échoué (' + resp.status + ')');
     var meta = await resp.json();
     if (onProgress) onProgress(100);
-    return { name: meta.name, webUrl: meta.webUrl, id: meta.id, size: meta.size };
+    return { name: meta.name, webUrl: meta.webUrl, id: meta.id, size: meta.size, driveId: driveId };
   }
 
   // Upload par session (gros fichiers) — chunks de 5 Mo (multiple de 320 Kio)
@@ -4284,10 +4302,10 @@ async function spUploadFile(file, subfolder, onProgress) {
     start = end;
     if (onProgress) onProgress(Math.round((start / total) * 100));
   }
-  if (lastMeta) return { name: lastMeta.name, webUrl: lastMeta.webUrl, id: lastMeta.id, size: lastMeta.size };
+  if (lastMeta) return { name: lastMeta.name, webUrl: lastMeta.webUrl, id: lastMeta.id, size: lastMeta.size, driveId: driveId };
   // Sinon, récupérer les métadonnées
   var metaResp = await spGraphCall('GET', '/drives/' + driveId + '/root:/' + encodeURI(path));
-  return { name: metaResp.name, webUrl: metaResp.webUrl, id: metaResp.id, size: metaResp.size };
+  return { name: metaResp.name, webUrl: metaResp.webUrl, id: metaResp.id, size: metaResp.size, driveId: driveId };
 }
 
 // Télécharge un fichier SharePoint par son id (déclenche le téléchargement navigateur)
@@ -4300,10 +4318,11 @@ async function spDownloadFileById(fileId, fileName, driveId) {
     var mainDrive = await spGetDriveId();
     if (mainDrive && drives.indexOf(mainDrive) < 0) drives.push(mainDrive);
     var lastErr = null;
+    drives.push('');  // '' = OneDrive de l'utilisatrice connectée (/me/drive)
     for (var i = 0; i < drives.length; i++) {
       try {
         var resp = await fetch(
-          'https://graph.microsoft.com/v1.0/drives/' + drives[i] + '/items/' + fileId + '/content',
+          'https://graph.microsoft.com/v1.0' + (drives[i] ? '/drives/' + drives[i] : '/me/drive') + '/items/' + fileId + '/content',
           { headers: { 'Authorization': 'Bearer ' + _spToken } }
         );
         if (!resp.ok) { lastErr = new Error('HTTP ' + resp.status); continue; }
@@ -4321,6 +4340,223 @@ async function spDownloadFileById(fileId, fileName, driveId) {
     console.error('spDownloadFileById', e);
     toast('⚠️ Téléchargement impossible');
   }
+}
+
+// ---- Ouverture fiable d'un document lié (correctif « 404 not found ») ----
+// Cause des 404 : le lien enregistré est souvent un lien « par chemin » (…/Documents partagés/dossier/fichier.docx).
+// Il casse dès que le fichier ou un dossier parent est renommé/déplacé, alors que l'identifiant du fichier (fileId) reste valable.
+// On retrouve donc le lien à jour à partir du fileId (Graph) avant d'ouvrir ; le lien enregistré ne sert que de secours.
+async function spResolveWebUrl(fileId, driveId) {
+  if (!fileId || !spUploadAvailable()) return null;
+  var tries = [];
+  if (driveId) tries.push('/drives/' + driveId + '/items/' + fileId);
+  try {
+    var mainDrive = await spGetDriveId();
+    if (mainDrive && mainDrive !== driveId) tries.push('/drives/' + mainDrive + '/items/' + fileId);
+  } catch(e) { /* drive principal injoignable : on continue */ }
+  tries.push('/me/drive/items/' + fileId);
+  for (var i = 0; i < tries.length; i++) {
+    try {
+      var meta = await spGraphCall('GET', tries[i] + '?select=id,name,webUrl,parentReference');
+      if (meta && meta.webUrl) {
+        return { url: meta.webUrl, driveId: (meta.parentReference && meta.parentReference.driveId) || driveId || '', name: meta.name || '' };
+      }
+    } catch(err) { /* essayer l'emplacement suivant */ }
+  }
+  return null;
+}
+
+function _spRowInputs(row) {
+  var ins = row.querySelectorAll('input[type="text"]');
+  return { label: ins[0] || null, url: ins[1] || null };
+}
+
+// Ouvre un document (lien enregistré + identifiant de fichier). onResolved(r) est appelé si un lien à jour a été retrouvé.
+function spOpenDocument(storedUrl, fileId, driveId, onResolved) {
+  var url = (storedUrl || '').trim();
+  if (url && !/^[a-z][a-z0-9+.\-]*:/i.test(url)) url = 'https://' + url;
+  if (!fileId || !spUploadAvailable()) {
+    if (!url) { toast('⚠️ Aucun lien à ouvrir'); return; }
+    window.open(url, '_blank', 'noopener');
+    if (fileId) toast('ℹ️ Si la page affiche « 404 », connectez-vous à SharePoint (☁️) : le lien à jour sera retrouvé automatiquement');
+    return;
+  }
+  // Onglet ouvert tout de suite (clic utilisateur) pour ne pas être bloqué, puis dirigé vers le lien à jour
+  var w = null;
+  try { w = window.open('about:blank', '_blank'); } catch(e) { w = null; }
+  spResolveWebUrl(fileId, driveId).then(function(r) {
+    var target = (r && r.url) || url;
+    if (!target) { if (w) w.close(); toast('⚠️ Document introuvable : il a peut-être été supprimé du Drive'); return; }
+    if (w && !w.closed) { try { w.opener = null; } catch(e) {} w.location.href = target; }
+    else window.open(target, '_blank', 'noopener');
+    if (r && r.url) { if (onResolved) onResolved(r, url); }
+    else if (url) toast('ℹ️ Lien enregistré ouvert tel quel (impossible de le vérifier auprès du Drive)');
+  }).catch(function() {
+    if (url) { if (w && !w.closed) w.location.href = url; else window.open(url, '_blank', 'noopener'); }
+    else if (w) w.close();
+  });
+}
+
+// Ouvre le document d'une ligne « Documents et liens » (👁)
+function spOpenLinkRow(row) {
+  var f = _spRowInputs(row);
+  spOpenDocument(f.url ? f.url.value : '', row.dataset.fileId || '', row.dataset.driveId || '', function(r, oldUrl) {
+    if (r.driveId && !row.dataset.driveId) row.dataset.driveId = r.driveId;
+    if (f.url && f.url.value.trim() !== r.url) {
+      f.url.value = r.url;
+      toast('🔄 Lien mis à jour automatiquement — enregistrez la fiche pour le conserver');
+    }
+  });
+}
+
+// Lien 📎 d'une carte Communication : même logique (le lien affiché peut être périmé)
+function spOpenCommuDoc(ev, id) {
+  var s = (state.commu || []).find(function(x){ return x.id === id; });
+  if (!s || !s.doc) return true;
+  if (ev && ev.preventDefault) ev.preventDefault();
+  spOpenDocument(s.doc.url, s.doc.fileId || '', s.doc.driveId || '', function(r) {
+    var ch = false;
+    if (r.driveId && !s.doc.driveId) { s.doc.driveId = r.driveId; ch = true; }
+    if (s.doc.url !== r.url) { s.doc.url = r.url; ch = true; toast('🔄 Lien mis à jour automatiquement'); }
+    if (ch) { s.updatedAt = Date.now(); saveState(); }
+  });
+  return false;
+}
+
+// Télécharge le document d'une ligne (⬇️)
+function spDownloadLinkRow(row) {
+  var f = _spRowInputs(row);
+  var label = (f.label && f.label.value.trim()) || 'fichier';
+  spDownloadFileById(row.dataset.fileId || '', label, row.dataset.driveId || '');
+}
+
+function spBindLinkRowButtons(row) {
+  row.querySelectorAll('.sp-open-btn').forEach(function(b) { b.addEventListener('click', function(e) { e.preventDefault(); spOpenLinkRow(row); }); });
+  row.querySelectorAll('.sp-dl-btn').forEach(function(b) { b.addEventListener('click', function(e) { e.preventDefault(); spDownloadLinkRow(row); }); });
+}
+
+/* ============================================================
+   RÉPARATION EN MASSE DES LIENS DE DOCUMENTS (OneDrive / SharePoint)
+   1) Analyse : pour chaque document ajouté depuis le Drive (fileId), retrouve le lien actuel via Microsoft Graph. Rien n'est modifié.
+   2) Bilan affiché ; 3) « Appliquer » met à jour les liens périmés (et complète l'identifiant du drive), puis sauvegarde.
+   Les documents introuvables ne sont jamais touchés.
+   ============================================================ */
+var _repairPlan = null;
+
+function _collectDocRefs() {
+  var refs = [];
+  function addLinks(kind, owner, arr, ownerObj) {
+    (arr || []).forEach(function(l) {
+      if (l && l.fileId) refs.push({ kind: kind, owner: owner, label: l.label || '(sans nom)', obj: l, ownerObj: ownerObj });
+    });
+  }
+  (state.actions || []).forEach(function(a) { addLinks('Fiche action', a.titre || a.id, a.links, a); });
+  (state.projets || []).forEach(function(p) { addLinks('Projet', p.titre || p.id, p.links, p); });
+  (state.evenements || []).forEach(function(e) { addLinks('Évènement', e.titre || e.nom || e.id, e.links, e); });
+  (state.commu || []).forEach(function(c) {
+    if (c.doc && c.doc.fileId) {
+      var act = (state.actions || []).find(function(a){ return a.id === c.actionId; });
+      refs.push({ kind: 'Communication', owner: (act ? act.titre : '') || c.label || c.id, label: c.label || c.doc.name || '(sans titre)', obj: c.doc, ownerObj: c });
+    }
+  });
+  return refs;
+}
+
+function openLinksRepair() {
+  if (EMBED_MODE) return;
+  if (!spUploadAvailable()) { toast('⚠️ Connectez-vous d\'abord à SharePoint (bouton ☁️) pour vérifier les liens'); return; }
+  document.getElementById('liens-repair-modal').classList.add('show');
+  scanLinksRepair();
+}
+function closeLinksRepair() {
+  document.getElementById('liens-repair-modal').classList.remove('show');
+  _repairPlan = null;
+}
+
+async function scanLinksRepair() {
+  var body = document.getElementById('liens-repair-body');
+  var apply = document.getElementById('liens-repair-apply');
+  var info = document.getElementById('liens-repair-info');
+  apply.style.display = 'none'; info.textContent = '';
+  var refs = _collectDocRefs();
+  if (!refs.length) {
+    body.innerHTML = '<div class="empty-state"><h3>Aucun document du Drive à vérifier</h3><p>Seuls les documents ajoutés avec « Choisir un fichier depuis OneDrive » ou par dépôt de fichier peuvent être vérifiés.</p></div>';
+    return;
+  }
+  var cache = {};
+  var done = 0;
+  var plan = { items: [] };
+  _repairPlan = plan;
+  function prog() { body.innerHTML = '<div style="padding:18px;text-align:center;font-size:13px;color:var(--teal-d)">⏳ Vérification des documents… ' + done + ' / ' + refs.length + '<div style="height:6px;background:var(--bg-soft);border-radius:4px;margin-top:10px;overflow:hidden"><div style="height:100%;width:' + Math.round(done * 100 / refs.length) + '%;background:var(--teal)"></div></div></div>'; }
+  prog();
+  var idx = 0;
+  async function worker() {
+    while (idx < refs.length) {
+      var ref = refs[idx++];
+      var key = (ref.obj.driveId || '') + '|' + ref.obj.fileId;
+      try {
+        if (!(key in cache)) cache[key] = spResolveWebUrl(ref.obj.fileId, ref.obj.driveId || '');
+        ref.res = await cache[key];
+      } catch(e) { ref.res = null; }
+      var cur = (ref.obj.url || '').trim();
+      if (!ref.res) ref.status = 'introuvable';
+      else if (ref.res.url !== cur) ref.status = 'corriger';
+      else ref.status = 'ok';
+      done++;
+      if (done % 5 === 0 || done === refs.length) prog();
+    }
+  }
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  if (_repairPlan !== plan) return;   // fenêtre fermée entre-temps
+  plan.items = refs;
+  renderLinksRepair();
+}
+
+function renderLinksRepair() {
+  var plan = _repairPlan; if (!plan) return;
+  var body = document.getElementById('liens-repair-body');
+  var apply = document.getElementById('liens-repair-apply');
+  var info = document.getElementById('liens-repair-info');
+  var ok = plan.items.filter(function(r){ return r.status === 'ok'; });
+  var fix = plan.items.filter(function(r){ return r.status === 'corriger'; });
+  var lost = plan.items.filter(function(r){ return r.status === 'introuvable'; });
+  var noDrive = plan.items.filter(function(r){ return r.res && r.res.driveId && !r.obj.driveId; });
+  function card(n, lbl, col) { return '<div style="flex:1;min-width:110px;padding:10px 12px;border-radius:8px;background:var(--bg-soft);border:1px solid var(--line-soft);text-align:center"><div style="font-size:22px;font-weight:700;color:' + col + '">' + n + '</div><div style="font-size:11px;color:var(--ink-mute)">' + lbl + '</div></div>'; }
+  var h = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
+        + card(plan.items.length, 'documents vérifiés', 'var(--ink)')
+        + card(ok.length, 'déjà à jour', 'var(--ok)')
+        + card(fix.length, 'liens à corriger', 'var(--teal-d)')
+        + card(lost.length, 'introuvables', lost.length ? 'var(--danger)' : 'var(--ink-mute)') + '</div>';
+  function rows(list, withNew) {
+    return '<div style="display:flex;flex-direction:column;gap:5px;max-height:260px;overflow:auto;margin-bottom:12px">' + list.map(function(r) {
+      return '<div style="padding:6px 9px;border:1px solid var(--line-soft);border-radius:6px;font-size:11.5px"><b>' + escapeHtml(r.label) + '</b> <span style="color:var(--ink-mute)">· ' + escapeHtml(r.kind) + ' — ' + escapeHtml(r.owner) + '</span>'
+        + (withNew ? '<div style="color:var(--ink-mute);word-break:break-all;margin-top:2px">→ ' + escapeHtml(r.res.url) + '</div>' : '') + '</div>';
+    }).join('') + '</div>';
+  }
+  if (fix.length) h += '<div style="font-weight:700;font-size:12.5px;margin-bottom:5px;color:var(--teal-d)">🔄 Liens qui seront mis à jour (' + fix.length + ')</div>' + rows(fix, true);
+  if (lost.length) h += '<div style="font-weight:700;font-size:12.5px;margin-bottom:5px;color:var(--danger)">⚠️ Documents introuvables (' + lost.length + ') — non modifiés</div>'
+      + '<div style="font-size:11.5px;color:var(--ink-mute);margin-bottom:5px">Supprimés du Drive, ou hors de vos droits d\'accès, ou drive non joignable. À rajouter manuellement si besoin.</div>' + rows(lost, false);
+  if (!fix.length && !lost.length) h += '<div style="padding:10px;font-size:12.5px;color:var(--ok);font-weight:600">✅ Tous les liens sont à jour.</div>';
+  body.innerHTML = h;
+  var nChange = fix.length + noDrive.length;
+  info.textContent = nChange ? (fix.length + ' lien(s) à corriger · ' + noDrive.length + ' identifiant(s) de drive à compléter') : '';
+  apply.style.display = nChange ? '' : 'none';
+  apply.textContent = '✔ Appliquer les corrections (' + fix.length + ')';
+}
+
+function applyLinksRepair() {
+  var plan = _repairPlan; if (!plan) return;
+  var nUrl = 0, nDrive = 0, now = Date.now();
+  plan.items.forEach(function(r) {
+    if (!r.res) return;
+    var ch = false;
+    if (r.status === 'corriger') { r.obj.url = r.res.url; nUrl++; ch = true; }
+    if (r.res.driveId && !r.obj.driveId) { r.obj.driveId = r.res.driveId; nDrive++; ch = true; }
+    if (ch && r.ownerObj) r.ownerObj.updatedAt = now;
+  });
+  saveState();
+  closeLinksRepair();
+  toast('✅ ' + nUrl + ' lien(s) mis à jour · ' + nDrive + ' identifiant(s) de drive complété(s)');
 }
 
 // Aperçu d'un document : ouvre le fichier dans la visionneuse en ligne (SharePoint/OneDrive),
@@ -9152,6 +9388,10 @@ function renderModeOp() {
       '<p>Cette checklist est independante des « Livrables attendus » de l\'avenant : elle n\'influence pas le taux d\'atteinte.</p>' +
       '<p><strong>Communication</strong> : « + Ajouter une communication » cree une carte dont le titre est a saisir immediatement. Le bouton <strong>Choisir un fichier depuis OneDrive</strong> de la carte associe le document : il apparait dans Documents &amp; liens sous le titre de la communication et se renomme si le titre change. <strong>Dissocier</strong> detache le document de la communication sans le supprimer de la liste.</p>'
     ],
+    ['🔗 Documents du Drive : lien « 404 » / réparer les liens',
+      '<p>Un document ajoute depuis le Drive peut afficher « 404 » s\'il a ete renomme ou deplace apres son ajout. Connectez-vous a SharePoint (bouton <strong>&#9729;&#65039;</strong>), puis cliquez sur <strong>&#128279; Reparer les liens</strong> dans la barre du haut : l\'outil verifie chaque document, vous montre le bilan, puis met a jour les liens perimes quand vous cliquez sur <strong>Appliquer</strong>. Les documents introuvables ne sont jamais modifies.</p>' +
+      '<p>Au quotidien, le bouton <strong>&#128065;</strong> d\'un document retrouve aussi automatiquement le lien a jour avant de l\'ouvrir (connexion SharePoint necessaire).</p>'
+    ],
     ['💶 Saisir une depense',
       '<p>Dans Budget mensuel, cliquez sur <strong>+ Saisir une depense</strong>. Renseignez la date, le montant, la mission, la part (fixe ou variable), le poste et le fournisseur.</p>' +
       '<p>La depense s\'integre immediatement dans le tableau mensuel et l\'onglet Equilibre financier.</p>'
@@ -9610,12 +9850,9 @@ function appendProjetLinkRow(lk) {
   if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
   if (lk && lk.driveId) div.dataset.driveId = lk.driveId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
-  var _did = (lk && lk.driveId) ? lk.driveId : '';
-  var pvBtn = (lk && (lk.fileId || lk.url))
-    ? '<button type="button" class="btn btn-sm" title="Aperçu (ouvrir sans télécharger)" onclick="spPreviewFile(\'' + (lk.fileId||'') + '\',\'' + escapeHtml((lk.url||'').replace(/\'/g,'')) + '\',\'' + _did + '\')" style="padding:4px 8px">👁</button>'
-    : '';
+  var pvBtn = '<button type="button" class="btn btn-sm sp-open-btn" title="Ouvrir le document (aperçu en ligne, sans télécharger)" style="padding:4px 8px">👁</button>';
   var dlBtn = (lk && lk.fileId)
-    ? '<button type="button" class="btn btn-sm" title="Télécharger" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\',\'' + _did + '\')" style="padding:4px 8px">⬇️</button>'
+    ? '<button type="button" class="btn btn-sm sp-dl-btn" title="Télécharger" style="padding:4px 8px">⬇️</button>'
     : '';
   div.innerHTML = `
     <input class="plnk-label" type="text" value="${escapeHtml(lk?lk.label:'')}" placeholder="Nom du document…"
@@ -9627,6 +9864,7 @@ function appendProjetLinkRow(lk) {
     <button type="button" class="btn btn-sm btn-danger-text" onclick="this.parentElement.remove()">×</button>
   `;
   document.getElementById('projet-links-list').appendChild(div);
+  spBindLinkRowButtons(div);
 }
 function addProjetLink() { appendProjetLinkRow(null); }
 
@@ -9923,12 +10161,9 @@ function appendEvenementLinkRow(lk) {
   if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
   if (lk && lk.driveId) div.dataset.driveId = lk.driveId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
-  var _did = (lk && lk.driveId) ? lk.driveId : '';
-  var pvBtn = (lk && (lk.fileId || lk.url))
-    ? '<button type="button" class="btn btn-sm" title="Aperçu (ouvrir sans télécharger)" onclick="spPreviewFile(\'' + (lk.fileId||'') + '\',\'' + escapeHtml((lk.url||'').replace(/\'/g,'')) + '\',\'' + _did + '\')" style="padding:4px 8px">👁</button>'
-    : '';
+  var pvBtn = '<button type="button" class="btn btn-sm sp-open-btn" title="Ouvrir le document (aperçu en ligne, sans télécharger)" style="padding:4px 8px">👁</button>';
   var dlBtn = (lk && lk.fileId)
-    ? '<button type="button" class="btn btn-sm" title="Télécharger" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\',\'' + _did + '\')" style="padding:4px 8px">⬇️</button>'
+    ? '<button type="button" class="btn btn-sm sp-dl-btn" title="Télécharger" style="padding:4px 8px">⬇️</button>'
     : '';
   div.innerHTML = `
     <input class="elnk-label" type="text" value="${escapeHtml(lk?lk.label:'')}" placeholder="Nom du document…"
@@ -9940,6 +10175,7 @@ function appendEvenementLinkRow(lk) {
     <button type="button" class="btn btn-sm btn-danger-text" onclick="this.parentElement.remove()">×</button>
   `;
   document.getElementById('evenement-links-list').appendChild(div);
+  spBindLinkRowButtons(div);
 }
 function addEvenementLink() { appendEvenementLinkRow(null); }
 
@@ -9979,6 +10215,7 @@ function renderLexique() {
     ['Part fixe', "Financement annuel garanti de la mission, quel que soit le niveau de résultats atteints."],
     ['Part variable', "Financement conditionné au niveau d'atteinte des objectifs contractuels. Peut être proratisé (*)."],
     ['Pièces à fournir', "Checklist opérationnelle d'une fiche action (Documents & liens) : documents à produire et à déposer, cochés au fur et à mesure. Distincte des livrables attendus de l'avenant."],
+    ['Lien « 404 »', "Un document ouvert depuis un ancien lien « par chemin » affiche 404 s'il a été renommé ou déplacé. Le bouton « Réparer les liens » retrouve le lien à jour à partir de l'identifiant du fichier."],
     ['PRADO', "Programme de Retour À DOmicile — dispositif de l'Assurance Maladie pour la sortie d'hospitalisation."],
     ['PS', "Professionnel de Santé."],
     ['QPV', "Quartier Prioritaire de la politique de la Ville."],
@@ -10946,7 +11183,7 @@ function commuDocHtml(s, actionId) {
   var h = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px;padding-top:7px;border-top:1px dashed var(--line)">';
   var bs = 'padding:4px 10px;border:1px solid var(--teal);border-radius:7px;background:var(--teal-p);font-size:11.5px;font-weight:600;color:var(--teal-d);cursor:pointer';
   if (s.doc && s.doc.url) {
-    h += '<span style="font-size:11.5px;display:flex;align-items:center;gap:5px;min-width:0">📎 <a href="' + escapeHtml(s.doc.url) + '" target="_blank" rel="noopener" title="' + escapeHtml(s.doc.name || '') + '" style="color:var(--teal-d);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:340px">' + escapeHtml(s.doc.name || 'Document') + '</a></span>';
+    h += '<span style="font-size:11.5px;display:flex;align-items:center;gap:5px;min-width:0">📎 <a href="' + escapeHtml(s.doc.url) + '" target="_blank" rel="noopener" onclick="return spOpenCommuDoc(event,\'' + s.id + '\')" title="' + escapeHtml(s.doc.name || '') + '" style="color:var(--teal-d);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:340px">' + escapeHtml(s.doc.name || 'Document') + '</a></span>';
     h += '<button type="button" class="btn btn-sm" onclick="pickCommuDoc(\'' + s.id + '\',\'' + actionId + '\')">Changer</button>';
     h += '<button type="button" class="btn btn-sm btn-danger-text" title="Dissocier le document de cette communication (il reste dans Documents &amp; liens)" onclick="detachCommuDoc(\'' + s.id + '\',\'' + actionId + '\')">Dissocier</button>';
   } else {
@@ -13699,12 +13936,9 @@ function appendLinkRow(lk) {
   if (lk && lk.fileId) div.dataset.fileId = lk.fileId;
   if (lk && lk.driveId) div.dataset.driveId = lk.driveId;
   div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
-  var _did = (lk && lk.driveId) ? lk.driveId : '';
-  var pvBtn = (lk && (lk.fileId || lk.url))
-    ? '<button type="button" class="btn btn-sm" title="Aperçu (ouvrir sans télécharger)" onclick="spPreviewFile(\'' + (lk.fileId||'') + '\',\'' + escapeHtml((lk.url||'').replace(/\'/g,'')) + '\',\'' + _did + '\')" style="padding:4px 8px">👁</button>'
-    : '';
+  var pvBtn = '<button type="button" class="btn btn-sm sp-open-btn" title="Ouvrir le document (aperçu en ligne, sans télécharger)" style="padding:4px 8px">👁</button>';
   var dlBtn = (lk && lk.fileId)
-    ? '<button type="button" class="btn btn-sm" title="Télécharger le fichier" onclick="spDownloadFileById(\'' + lk.fileId + '\',\'' + escapeHtml((lk.label||'fichier').replace(/\'/g,'')) + '\',\'' + _did + '\')" style="padding:4px 8px">⬇️</button>'
+    ? '<button type="button" class="btn btn-sm sp-dl-btn" title="Télécharger le fichier" style="padding:4px 8px">⬇️</button>'
     : '';
   div.innerHTML = `
     <input class="link-label" type="text" value="${escapeHtml(lk?lk.label:'')}" placeholder="Nom du document…"
@@ -13716,6 +13950,7 @@ function appendLinkRow(lk) {
     <button type="button" class="btn btn-sm btn-danger-text" onclick="removeLinkRow(this)">×</button>
   `;
   document.getElementById('links-list').appendChild(div);
+  spBindLinkRowButtons(div);
 }
 
 /* ============================================================
@@ -13754,7 +13989,7 @@ function makeDropZone(containerId, listId, subfolder, appendFn) {
   odPickBtn.addEventListener('click', function(e){
     e.stopPropagation();
     openOneDrivePicker(function(picked){
-      appendFn({ id: makeId('lnk'), label: picked.name, url: picked.webUrl, fileId: picked.id });
+      appendFn({ id: makeId('lnk'), label: picked.name, url: picked.webUrl, fileId: picked.id, driveId: picked.driveId || '' });
     });
   });
 
@@ -13773,7 +14008,7 @@ function makeDropZone(containerId, listId, subfolder, appendFn) {
         status.textContent = '⏳ Envoi de « ' + file.name + ' » … ' + pct + '%';
       }).then(function(res){
         status.remove();
-        appendFn({ id: makeId('lnk'), label: res.name, url: res.webUrl, fileId: res.id });
+        appendFn({ id: makeId('lnk'), label: res.name, url: res.webUrl, fileId: res.id, driveId: res.driveId || '' });
         toast('✅ « ' + res.name + ' » ajouté');
         if (typeof saveState === 'function') { /* la sauvegarde se fait à l'enregistrement de la fiche */ }
       }).catch(function(e){
@@ -15465,6 +15700,51 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 } /* fin (!EMBED_MODE) */
+
+/* ============================================================
+   SHAREPOINT / ONEDRIVE DANS LES FENÊTRES FLOTTANTES
+   Une fenêtre flottante est une page distincte (iframe) qui ne se connecte jamais elle-même à Microsoft 365 :
+   elle utilisait donc « SharePoint non connecté » pour tout dépôt / sélection de document. Elle délègue désormais
+   ces opérations à la fenêtre principale, qui porte la connexion.
+   ============================================================ */
+if (EMBED_MODE) {
+  (function() {
+    function parentWin() {
+      try {
+        if (window.parent && window.parent !== window && typeof window.parent.spUploadAvailable === 'function') return window.parent;
+      } catch(e) {}
+      return null;
+    }
+    function pret() { var p = parentWin(); return (p && p.spUploadAvailable()) ? p : null; }
+    function nonConnecte() { toast('⚠️ SharePoint non connecté — cliquez sur « ☁️ SharePoint » dans la fenêtre principale'); }
+    spUploadAvailable = function() { return !!pret(); };
+    spUploadFile = function(file, subfolder, onProgress) {
+      var p = pret();
+      if (!p) return Promise.reject(new Error('SharePoint non connecté'));
+      return p.spUploadFile(file, subfolder, onProgress);
+    };
+    openOneDrivePicker = function(onPick) {
+      var p = pret();
+      if (!p) { nonConnecte(); return Promise.resolve(); }
+      return p.openOneDrivePicker(onPick);
+    };
+    spPreviewFile = function(fileId, webUrl, driveId) {
+      var p = pret();
+      if (!p) { nonConnecte(); return Promise.resolve(); }
+      return p.spPreviewFile(fileId, webUrl, driveId);
+    };
+    spDownloadFileById = function(fileId, fileName, driveId) {
+      var p = pret();
+      if (!p) { nonConnecte(); return Promise.resolve(); }
+      return p.spDownloadFileById(fileId, fileName, driveId);
+    };
+    spResolveWebUrl = function(fileId, driveId) {
+      var p = pret();
+      if (!p || typeof p.spResolveWebUrl !== 'function') return Promise.resolve(null);
+      return p.spResolveWebUrl(fileId, driveId);
+    };
+  })();
+}
 
 /* ============================================================
    MODE EMBED — vue en consultation seule à l'intérieur d'une fenêtre flottante
