@@ -2451,7 +2451,9 @@ const PREV_THEMES_BASE = [
     { theme: 'BPCO', titre: 'Sensibilisation patients fumeurs et orientation vers les PS' }
   ]},
   { id: 'cancer_col', label: 'Cancer du col de l\'utérus', match: [
-    { theme: 'Cancer col utérus', titre: 'Amélioration de la participation au dépistage du cancer du col de l\'utérus' }
+    { theme: "Cancer du col de l'utérus / HPV", titre: 'Amélioration de la participation au dépistage du cancer du col de l\'utérus' },
+    { theme: "Cancer du col de l'utérus / HPV", titre: 'Sensibilisation HPV patients + PS (avec CPTS Santé Seine Essonne)' },
+    { theme: "Cancer du col de l'utérus / HPV", titre: 'Actions de vaccination HPV dans les établissements' }
   ]},
   { id: 'cancer_colo', label: 'Cancer colorectal', match: [
     { theme: 'Cancer colorectal', titre: 'Amélioration de la participation au dépistage du cancer colorectal' },
@@ -2466,8 +2468,9 @@ const PREV_THEMES_BASE = [
     { theme: 'Femmes / Enfants', titre: 'Communication autour du programme gestion de la douleur (endométriose) avec CPTS Santé Seine Essonne' }
   ]},
   { id: 'etudiants', label: 'Étudiants', match: [
-    { theme: 'Cancer col utérus / HPV', titre: 'Sensibilisation HPV patients + PS (avec CPTS Santé Seine Essonne)' },
-    { theme: 'Cancer col utérus / HPV', titre: 'Actions de vaccination HPV dans les établissements' },
+    { theme: 'Santé étudiants', titre: 'Actions de prévention en établissements d\'enseignement supérieur (Université d\'Évry)' },
+    { theme: 'Santé étudiants', titre: 'Organisation de l\'événement « Le Campus Santé »' },
+    { theme: 'Santé étudiants', titre: 'Vacations ponctuelles de consultations' },
     { theme: 'Santé étudiants', titre: 'Promotion de la vaccination HPV chez enfants et jeunes' }
   ]},
   { id: 'lombalgies', label: 'Lombalgie', match: [
@@ -2842,15 +2845,15 @@ const DEFAULT_ACTIONS = [
     livrables:["Liste anonymisée des patientes adressées"] },
 
   // Cancer col utérus / HPV
-  { mission:'prevention', theme:"Cancer col utérus", titre:"Amélioration de la participation au dépistage du cancer du col de l'utérus",
+  { mission:'prevention', theme:"Cancer du col de l'utérus / HPV", titre:"Amélioration de la participation au dépistage du cancer du col de l'utérus",
     libelle:"Taux de patientes dépistées", type:'resultat', unite:"%",
     initiale:"59,7% (au 31/10/2025)", cible:"Augmentation du taux de dépistage", budget:1000, prorata:false,
     livrables:["Données CPAM"] },
-  { mission:'prevention', theme:"Cancer col utérus / HPV", titre:"Sensibilisation HPV patients + PS (avec CPTS Santé Seine Essonne)",
+  { mission:'prevention', theme:"Cancer du col de l'utérus / HPV", titre:"Sensibilisation HPV patients + PS (avec CPTS Santé Seine Essonne)",
     libelle:"Nombre d'actions patients + sessions PS HPV", type:'resultat', unite:"actions",
     initiale:"", cible:"4 actions a minima dont 1 inter-CPTS", budget:2000, prorata:false,
     livrables:["Bilan annuel","Supports","Nb assurés/PS sensibilisés","Rôle de chaque CPTS"] },
-  { mission:'prevention', theme:"Cancer col utérus / HPV", titre:"Actions de vaccination HPV dans les établissements",
+  { mission:'prevention', theme:"Cancer du col de l'utérus / HPV", titre:"Actions de vaccination HPV dans les établissements",
     libelle:"Nombre d'actions de vaccination en établissement", type:'suivi', unite:"actions",
     initiale:"", cible:"Actions de vaccination", budget:0, prorata:false,
     livrables:["Liste des PS participants","Bilan annuel"] },
@@ -3313,7 +3316,7 @@ let state = (EMBED_MODE && _pilotageParentState) ? _pilotageParentState : loadSt
       if (a.statut !== auto) { a.statut = auto; changed = true; }
     }
   });
-  if (changed || migrateReferentielV9.dirty) { try { saveState(); } catch(e) {} }
+  if (changed || migrateReferentielV9.dirty || migrateColHpvEtudiantsV10.dirty || migrateRetourBasculeV11.dirty) { try { saveState(); } catch(e) {} }
 })();
 let currentView = 'dashboard';
 
@@ -3704,6 +3707,145 @@ function migrateReferentielV9(st) {
   return true;
 }
 
+/* ============================================================
+   MIGRATION v10 (octobre 2026) — « Cancer du col de l'utérus / HPV » : un seul thème pour 3 actions ;
+   cohérence des évènements « Journée prévention » avec les boutons « Cancer du col de l'utérus » et « Étudiants ».
+   (La bascule des évènements vers la fiche « Sensibilisation HPV… », initialement incluse ici, a été annulée : v11.)
+   AUCUNE suppression de donnée.
+   Exécutée UNE seule fois par jeu de données (drapeau _migrations).
+   ============================================================ */
+function migrateColHpvEtudiantsV10(st) {
+  // Constantes LOCALES : appelée par loadState() avant l'initialisation des variables globales plus bas.
+  var FLAG = 'v10_col_hpv_etudiants_bascule';
+  var THEME_COL = "Cancer du col de l'utérus / HPV";
+  var T_SRC = "Amélioration de la participation au dépistage du cancer du col de l'utérus";
+  var T_DST = "Sensibilisation HPV patients + PS (avec CPTS Santé Seine Essonne)";
+  var T_HPV2 = "Actions de vaccination HPV dans les établissements";
+  var T_ETU = ["Actions de prévention en établissements d'enseignement supérieur (Université d'Évry)",
+               "Organisation de l'événement « Le Campus Santé »",
+               "Vacations ponctuelles de consultations",
+               "Promotion de la vaccination HPV chez enfants et jeunes"];
+  if (!st || !Array.isArray(st.actions)) return false;
+  if (!st._migrations || typeof st._migrations !== 'object') st._migrations = {};
+  if (st._migrations[FLAG]) return false;
+  var now = Date.now();
+  var norm = function(t) { return String(t || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+  var byTitle = function(t) { return st.actions.find(function(a) { return a && norm(a.titre) === norm(t); }); };
+  var touched = {};
+  var touch = function(o) { if (o && o.id) touched[o.id] = o; };
+
+  // 1) Un seul thème pour les 3 actions (anciens libellés « Cancer col utérus » et « Cancer col utérus / HPV »)
+  st.actions.forEach(function(a) {
+    if (a && a.mission === 'prevention' && (a.theme === 'Cancer col utérus' || a.theme === 'Cancer col utérus / HPV')) {
+      a.theme = THEME_COL; touch(a);
+    }
+  });
+  var src = byTitle(T_SRC), dst = byTitle(T_DST), hpv2 = byTitle(T_HPV2);
+
+  // (La bascule d'évènements de la fiche source vers la fiche cible a été retirée : voir migration v11.)
+
+  // 3) Cohérence des évènements « Journée prévention » avec les nouveaux boutons :
+  //    une action HPV cochée doit apparaître sous « Cancer du col de l'utérus » ; « Étudiants » n'est conservé que
+  //    si une action Santé étudiants est cochée (les actions cochées restent cochées).
+  var hpvIds = [dst, hpv2].filter(Boolean).map(function(a) { return a.id; });
+  var etuIds = T_ETU.map(byTitle).filter(Boolean).map(function(a) { return a.id; });
+  var fixThemes = function(list, owner) {
+    (list || []).forEach(function(ev) {
+      if (!ev || !ev.journeePrev) return;
+      var ids = ev.prevActionIds || [];
+      if (!ids.some(function(i) { return hpvIds.indexOf(i) !== -1; })) return;
+      if (!Array.isArray(ev.prevThemes)) ev.prevThemes = [];
+      var ch = false;
+      if (ev.prevThemes.indexOf('cancer_col') === -1) { ev.prevThemes.push('cancer_col'); ch = true; }
+      var iE = ev.prevThemes.indexOf('etudiants');
+      if (iE !== -1 && !ids.some(function(i) { return etuIds.indexOf(i) !== -1; })) { ev.prevThemes.splice(iE, 1); ch = true; }
+      if (ch) touch(owner);
+    });
+  };
+  st.actions.forEach(function(a) { if (a && a.planif) fixThemes(a.planif.evenements, a); });
+  (st.projets || []).forEach(function(p) { if (p && p.planif) fixThemes(p.planif.evenements, p); });
+
+  Object.keys(touched).forEach(function(k) { touched[k].updatedAt = now; });
+  st._migrations[FLAG] = now;
+  migrateColHpvEtudiantsV10.dirty = true;   // sauvegarde immédiate au démarrage
+  return true;
+}
+
+/* ============================================================
+   MIGRATION v11 (octobre 2026) — RETOUR de la bascule v10 : les évènements / réunion / tâche et les cases « Éléments liés »
+   qui avaient été déplacés de la fiche « Amélioration de la participation au dépistage du cancer du col de l'utérus »
+   vers la fiche « Sensibilisation HPV patients + PS » sont remis dans leur fiche d'origine.
+   Uniquement les éléments concernés (identifiants connus) : tout le reste est conservé. Aucune suppression de donnée.
+   Sans effet sur un jeu de données où la bascule n'a jamais eu lieu. Exécutée UNE seule fois (drapeau _migrations).
+   ============================================================ */
+function migrateRetourBasculeV11(st) {
+  var FLAG = 'v11_retour_bascule_col_hpv';
+  var T_SRC = "Amélioration de la participation au dépistage du cancer du col de l'utérus";
+  var T_DST = "Sensibilisation HPV patients + PS (avec CPTS Santé Seine Essonne)";
+  var EVT_IDS = ['evt_1791210598166_1he0h', 'evt_1791210683126_14bo3'];   // DOCCU Ris-Orangis, DOCCU CPAM de Grigny
+  var REU_IDS = ['reu_1783937602760_6ecum'];                              // Point prévention avec Philippe PEREZ (+ sa tâche)
+  // Évènements Journée prévention qui cochaient la fiche source : position d'origine dans la liste, et la fiche cible
+  // y était-elle déjà cochée avant la bascule ?
+  var LIES = {
+    'evt_1786712395565_pfxl4': { pos: 0, dstDeja: true  },   // Journée santé des femmes Grigny
+    'evt_1791210228466_1ryak': { pos: 2, dstDeja: false },   // DOCS au centre d'imagerie Elysées
+    'evt_1791209923437_44xku': { pos: 1, dstDeja: false },   // DOCS Clinique du Mousseau
+    'evt_1791209837461_iftk1': { pos: 0, dstDeja: false }    // DOCS au CHSF
+  };
+  if (!st || !Array.isArray(st.actions)) return false;
+  if (!st._migrations || typeof st._migrations !== 'object') st._migrations = {};
+  if (st._migrations[FLAG]) return false;
+  var now = Date.now();
+  var norm = function(t) { return String(t || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+  var byTitle = function(t) { return st.actions.find(function(a) { return a && norm(a.titre) === norm(t); }); };
+  var touched = {};
+  var touch = function(o) { if (o && o.id) touched[o.id] = o; };
+  var src = byTitle(T_SRC), dst = byTitle(T_DST);
+
+  if (src && dst && src.id !== dst.id) {
+    [src, dst].forEach(function(a) {
+      if (!a.planif || typeof a.planif !== 'object') a.planif = {};
+      if (!Array.isArray(a.planif.evenements)) a.planif.evenements = [];
+      if (!Array.isArray(a.planif.reunions)) a.planif.reunions = [];
+      if (!Array.isArray(a.tasks)) a.tasks = [];
+    });
+    // 1) Évènements, réunion et tâche : remis dans la fiche source (une seule copie ; rien n'est supprimé)
+    var lists = [
+      { ids: EVT_IDS, get: function(a) { return a.planif.evenements; }, set: function(a, l) { a.planif.evenements = l; } },
+      { ids: REU_IDS, get: function(a) { return a.planif.reunions; },   set: function(a, l) { a.planif.reunions = l; } },
+      { ids: REU_IDS, get: function(a) { return a.tasks; },             set: function(a, l) { a.tasks = l; } }
+    ];
+    lists.forEach(function(L) {
+      L.ids.forEach(function(id) {
+        var copy = L.get(dst).find(function(x) { return x && x.id === id; });
+        if (!copy) return;
+        if (!L.get(src).some(function(x) { return x && x.id === id; })) L.set(src, L.get(src).concat([copy]));
+        L.set(dst, L.get(dst).filter(function(x) { return !(x && x.id === id); }));
+        touch(src); touch(dst);
+      });
+    });
+    // 2) Éléments liés : ces évènements recochent la fiche source (à leur place d'origine)
+    var restore = function(list, owner) {
+      (list || []).forEach(function(ev) {
+        var L = ev && LIES[ev.id];
+        if (!L) return;
+        if (!Array.isArray(ev.prevActionIds)) ev.prevActionIds = [];
+        var ids = ev.prevActionIds, ch = false;
+        if (ids.indexOf(src.id) === -1) { ids.splice(Math.min(L.pos, ids.length), 0, src.id); ch = true; }
+        if (!L.dstDeja) { var i = ids.indexOf(dst.id); if (i !== -1) { ids.splice(i, 1); ch = true; } }
+        if (ch) touch(owner);
+      });
+    };
+    st.actions.forEach(function(a) { if (a && a.planif) restore(a.planif.evenements, a); });
+    (st.projets || []).forEach(function(p) { if (p && p.planif) restore(p.planif.evenements, p); });
+  }
+
+  Object.keys(touched).forEach(function(k) { touched[k].updatedAt = now; });
+  st._migrations[FLAG] = now;
+  migrateRetourBasculeV11.dirty = true;   // sauvegarde immédiate au démarrage
+  return true;
+}
+
 function loadState() {
   try {
     const raw = storageGet(STORAGE_KEY);
@@ -3776,6 +3918,8 @@ function loadState() {
 
         // Migration v9 — rattrapage référentiel (ajout uniquement) + thème « Femmes / Enfants »
         migrateReferentielV9(parsed);
+        migrateColHpvEtudiantsV10(parsed);   // v10 : col de l'utérus / HPV, Étudiants
+        migrateRetourBasculeV11(parsed);     // v11 : retour des évènements dans leurs fiches d'origine
 
         // Migration v7a — Injection des attributions selon les fiches de mission
         // pour les actions qui n'ont pas encore d'owner défini
@@ -4926,6 +5070,8 @@ function importJSON(event){
       if (!confirm("Charger cette sauvegarde ? L'état actuel sera remplacé (un snapshot sera conservé).")) return;
       state = parsed;
       migrateReferentielV9(state);
+      migrateColHpvEtudiantsV10(state);
+      migrateRetourBasculeV11(state);
       saveState();
       showView(currentView);
       toast('📥 Sauvegarde importée : ' + file.name);
@@ -13134,8 +13280,8 @@ function renderEvtLies(currentActionId, currentMission) {
   liens.forEach(function(l) {
     var ev = l.evt;
     var openFn = l.kind === 'projet'
-      ? 'closeActionModal();setTimeout(function(){openProjetModal(\'' + l.source.id + '\');},120)'
-      : 'closeActionModal();setTimeout(function(){openActionModal(\'' + l.source.id + '\');},120)';
+      ? 'closeActionModal();setTimeout(function(){openProjetModal(\'' + l.source.id + '\',\'planification\');},120)'
+      : 'closeActionModal();setTimeout(function(){openActionModal(\'' + l.source.id + '\',\'planification\');},120)';
     var icon = ev.journeePrev ? '🎯' : '📅';
     html += '<div class="evt-lie-card">'
       + '<div style="font-weight:600;color:var(--teal-d)">' + icon + ' ' + escapeHtml(ev.titre || ev.type || 'Évènement') + (ev.date ? ' · ' + fmt.date(ev.date) : '') + '</div>'
@@ -13181,8 +13327,8 @@ function renderProjetEvtLies(currentProjetId) {
   liens.forEach(function(l) {
     var ev = l.evt;
     var openFn = l.kind === 'projet'
-      ? 'closeProjetModal();setTimeout(function(){openProjetModal(\'' + l.source.id + '\');},120)'
-      : 'closeProjetModal();setTimeout(function(){openActionModal(\'' + l.source.id + '\');},120)';
+      ? 'closeProjetModal();setTimeout(function(){openProjetModal(\'' + l.source.id + '\',\'planification\');},120)'
+      : 'closeProjetModal();setTimeout(function(){openActionModal(\'' + l.source.id + '\',\'planification\');},120)';
     html += '<div class="evt-lie-card">'
       + '<div style="font-weight:600;color:var(--teal-d)">🎯 ' + escapeHtml(ev.titre || ev.type || 'Journée prévention') + (ev.date ? ' · ' + fmt.date(ev.date) : '') + '</div>'
       + '<div style="font-size:11.5px;color:var(--ink-soft);margin-top:2px">Issue de : <strong>' + escapeHtml(l.source.titre) + '</strong></div>'
