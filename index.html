@@ -1243,6 +1243,7 @@ body.pilotage-embed .pilotage-fab-wrap { display: none !important; }
       </div>
     </div>
     <div class="header-actions">
+      <button class="btn" onclick="gsOpen()" title="Rechercher un évènement, une réunion, une action, un projet… dans tout l'outil (Ctrl + K)" style="font-weight:700">🔍 Rechercher <span style="opacity:.6;font-weight:500;font-size:11px">Ctrl+K</span></button>
       <button class="btn" onclick="exportAllExcel()" title="Export Excel multi-feuilles">⬇ Excel</button>
       <button class="btn" onclick="window.print()" title="Imprimer / sauver en PDF">🖶 Imprimer</button>
       <button class="btn btn-primary" onclick="openActionModal()">＋ Nouvelle action</button>
@@ -3877,6 +3878,397 @@ function migrateRetourBasculeV11(st) {
   migrateRetourBasculeV11.dirty = true;   // sauvegarde immédiate au démarrage
   return true;
 }
+
+/* ============================================================
+   RECHERCHE GLOBALE (Ctrl+K) — retrouve un évènement, une réunion, une tâche, une action, un projet, un support de
+   communication, un jalon d'agenda ou une dépense à partir d'un mot-clé (sans accents, sans majuscules, plusieurs mots
+   = tous doivent apparaître). Chaque résultat indique sa fiche d'origine et l'ouvre au bon endroit.
+   Lecture seule : ne modifie aucune donnée.
+   ============================================================ */
+var _gs = { open: false, query: '', kind: '', results: [], active: 0, timer: null };
+
+function gsNorm(s) {
+  s = String(s == null ? '' : s);
+  var out = '';
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charAt(i);
+    var d = c.normalize ? c.normalize('NFD').charAt(0) : c;
+    out += d.toLowerCase();
+  }
+  return out.replace(/œ/g, 'o').replace(/æ/g, 'a');
+}
+
+// Aplatit toutes les valeurs texte d'un objet (hors identifiants, dates techniques, pièces jointes encodées)
+function gsFlat(o, skipKeys, depth) {
+  depth = depth || 0;
+  if (o == null || depth > 6) return '';
+  if (typeof o === 'string') {
+    if (o.length > 3000 || /^data:/i.test(o) || /^https?:\/\//i.test(o)) return '';
+    return o + ' ';
+  }
+  if (typeof o === 'number') return String(o) + ' ';
+  if (typeof o !== 'object') return '';
+  var r = '';
+  if (Array.isArray(o)) { o.forEach(function(x) { r += gsFlat(x, skipKeys, depth + 1); }); return r; }
+  Object.keys(o).forEach(function(k) {
+    if (k === 'id' || /Id$|Ids$|^_|At$|^ts$|^done$|^statut/.test(k)) return;
+    if (skipKeys && skipKeys.indexOf(k) >= 0) return;
+    r += gsFlat(o[k], skipKeys, depth + 1);
+  });
+  return r;
+}
+
+function gsDateFr(d) { try { return d ? fmt.date(d) : ''; } catch (e) { return d || ''; } }
+
+function gsAssocTitles(ev) {
+  var out = [];
+  (ev.prevActionIds || []).forEach(function(aid) {
+    if (String(aid).indexOf('projet:') === 0) {
+      var p = (state.projets || []).find(function(x) { return x.id === aid.slice(7); });
+      if (p) out.push('🚀 ' + p.titre);
+    } else {
+      var a = (state.actions || []).find(function(x) { return x.id === aid; });
+      if (a) out.push(((MISSION_BY_ID[a.mission] || {}).short ? MISSION_BY_ID[a.mission].short + ' › ' : '') + a.titre);
+    }
+  });
+  return out;
+}
+
+// Construit la liste de tous les éléments consultables
+function gsBuildIndex() {
+  var items = [];
+  var jsq = function(s) { return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); };
+  var containers = [
+    { list: state.actions || [], icon: '🎯', kind: 'action', kindLabel: 'Actions ACI',
+      title: function(c) { return c.titre; },
+      crumb: function(c) { var m = MISSION_BY_ID[c.mission]; return (m ? m.short + ' › ' : '') + c.titre; },
+      open: function(c, tab) { return "openActionModal('" + jsq(c.id) + "'" + (tab ? ",'" + tab + "'" : '') + ")"; },
+      taskOpen: function(c, t) { return "openTaskDetailModal('" + jsq(c.id) + "','" + jsq(t.id) + "')"; },
+      skip: ['planif', 'tasks'] },
+    { list: state.projets || [], icon: '🚀', kind: 'projet', kindLabel: 'Projets hors ACI',
+      title: function(c) { return c.titre; },
+      crumb: function(c) { return 'Projet hors ACI › ' + c.titre; },
+      open: function(c, tab) { return "openProjetModal('" + jsq(c.id) + "'" + (tab ? ",'" + tab + "'" : '') + ")"; },
+      taskOpen: function(c, t) { return "openHorsACITaskModal('projet','" + jsq(c.id) + "','" + jsq(t.id) + "')"; },
+      skip: ['planif', 'tasks'] },
+    { list: state.evenements || [], icon: '🎉', kind: 'evt_horsaci', kindLabel: 'Évènements hors ACI',
+      title: function(c) { return c.titre || c.nom || c.label || 'Évènement'; },
+      crumb: function(c) { return 'Évènement hors ACI › ' + (c.titre || c.nom || c.label || ''); },
+      open: function(c, tab) { return "openEvenementModal('" + jsq(c.id) + "'" + (tab ? ",'" + tab + "'" : '') + ")"; },
+      taskOpen: function(c, t) { return "openHorsACITaskModal('evenement','" + jsq(c.id) + "','" + jsq(t.id) + "')"; },
+      skip: ['planif', 'tasks'] }
+  ];
+  containers.forEach(function(C) {
+    C.list.forEach(function(c) {
+      if (!c || c._deleted) return;
+      var crumb = C.crumb(c);
+      var archived = c.statut === 'archive';
+      // 1) la fiche elle-même
+      var partenaires = (c.partenaires || []).map(function(p) { return (p.nom || '') + ' ' + (p.role || ''); }).join(' ');
+      items.push({
+        kind: C.kind, group: C.kindLabel, order: C.kind === 'action' ? 3 : 4, icon: C.icon,
+        label: C.title(c), sub: [ (MISSION_BY_ID[c.mission] || {}).short, c.theme, c.owner || c.responsable ].filter(Boolean).join(' · '),
+        crumb: '', own: gsFlat(c, C.skip) + ' ' + partenaires, ctx: crumb, date: '', archived: archived,
+        open: C.open(c, '')
+      });
+      // 2) tâches de la fiche
+      // Les tâches d'une fiche sont aussi présentes dans sa planification (réunions et tâches) : on n'affiche qu'une fois
+      var _reuKeys = {};
+      ((c.planif || {}).reunions || []).forEach(function(r) { _reuKeys[gsNorm(r.titre) + '|' + (r.date || '')] = true; });
+      (c.tasks || []).forEach(function(t) {
+        if (_reuKeys[gsNorm(t.label || t.titre) + '|' + (t.due || t.date || '')]) return;
+        items.push({
+          kind: 'tache', group: 'Réunions et tâches', order: 2, icon: '✅',
+          label: t.label || t.titre || 'Tâche', sub: ['Tâche', t.due ? 'échéance ' + gsDateFr(t.due) : '', t.owner].filter(Boolean).join(' · '),
+          crumb: crumb + ' › Tâches', own: gsFlat(t), ctx: crumb, date: t.due || '', done: !!t.done, archived: archived,
+          open: C.taskOpen(c, t)
+        });
+      });
+      // 3) évènements planifiés
+      var pl = c.planif || {};
+      (pl.evenements || []).forEach(function(ev) {
+        var assoc = gsAssocTitles(ev);
+        items.push({
+          kind: 'evenement', group: 'Évènements', order: 1, icon: '📅',
+          label: ev.titre || ev.type || 'Évènement sans titre',
+          sub: [ev.type, gsDateFr(ev.date) + (ev.heure ? ' à ' + ev.heure : ''), ev.lieu, (ev.animatrices || []).join(', ')].filter(Boolean).join(' · '),
+          crumb: crumb + ' › Planification', assoc: assoc, own: gsFlat(ev) + ' ' + assoc.join(' '), ctx: crumb,
+          date: ev.date || '', done: !!ev.done, archived: archived,
+          open: C.open(c, 'planification'), flashList: 'evt', flashTitle: ev.titre || ev.type || ''
+        });
+      });
+      // 4) réunions et tâches de la planification
+      (pl.reunions || []).forEach(function(r) {
+        items.push({
+          kind: 'reunion', group: 'Réunions et tâches', order: 2, icon: '🗓️',
+          label: r.titre || 'Réunion ou tâche sans titre',
+          sub: ['Réunion / tâche', gsDateFr(r.date) + (r.heure ? ' à ' + r.heure : ''), (r.coords || []).join(', ')].filter(Boolean).join(' · '),
+          crumb: crumb + ' › Planification', own: gsFlat(r), ctx: crumb, date: r.date || '', done: !!r.done, archived: archived,
+          open: C.open(c, 'planification'), flashList: 'reu', flashTitle: r.titre || ''
+        });
+      });
+    });
+  });
+  // Jalons de l'agenda, supports de communication, dépenses, recettes
+  var simple = [
+    { list: state.jalons, icon: '📍', kind: 'jalon', group: 'Agenda et jalons', order: 5, keys: ['titre', 'label'],
+      sub: function(x) { return [x.type, gsDateFr(x.date), x.attribue].filter(Boolean).join(' · '); },
+      crumb: 'Agenda › Jalon', open: function(x) { return "openJalonModal('" + jsq(x.date || '') + "','" + jsq(x.id) + "')"; }, date: function(x) { return x.date; }, done: function(x) { return x.statut === 'realise'; } },
+    { list: state.commu, icon: '📣', kind: 'commu', group: 'Communication', order: 6, keys: ['label', 'titre'],
+      sub: function(x) { return [x.categorie, x.responsable, gsDateFr(x.datePublication)].filter(Boolean).join(' · '); },
+      crumb: 'Communication › Supports', open: function(x) { return "openCommuModal();setTimeout(function(){var i=document.getElementById('commu-search');if(i){i.value='" + jsq(x.label || '') + "';renderCommuTable();}},120)"; }, date: function(x) { return x.datePublication; }, done: function(x) { return !!(x.phases && x.phases.diffusion); } },
+    { list: state.depenses, icon: '💶', kind: 'depense', group: 'Dépenses', order: 7, keys: ['fournisseur', 'poste', 'note'],
+      sub: function(x) { return [gsDateFr(x.date), (x.montant != null ? x.montant + ' €' : ''), x.poste].filter(Boolean).join(' · '); },
+      crumb: 'Budget › Dépenses', open: function(x) { return "openDepenseModal('" + jsq(x.id) + "')"; }, date: function(x) { return x.date; } },
+    { list: state.recettes, icon: '💰', kind: 'recette', group: 'Recettes', order: 8, keys: ['libelle', 'label', 'titre', 'source', 'nom'],
+      sub: function(x) { return [gsDateFr(x.date), (x.montant != null ? x.montant + ' €' : '')].filter(Boolean).join(' · '); },
+      crumb: 'Budget › Recettes', open: function(x) { return "openRecetteModal('" + jsq(x.id) + "')"; }, date: function(x) { return x.date; } }
+  ];
+  simple.forEach(function(S) {
+    (Array.isArray(S.list) ? S.list : []).forEach(function(x) {
+      if (!x || x._deleted) return;
+      var label = '';
+      for (var i = 0; i < S.keys.length && !label; i++) label = x[S.keys[i]] || '';
+      items.push({
+        kind: S.kind, group: S.group, order: S.order, icon: S.icon, label: label || S.group,
+        sub: S.sub(x), crumb: S.crumb, own: gsFlat(x), ctx: S.crumb, date: S.date ? (S.date(x) || '') : '',
+        done: S.done ? S.done(x) : undefined, open: S.open(x)
+      });
+    });
+  });
+  return items;
+}
+
+function gsSearch(query, kind) {
+  var terms = gsNorm(query).split(/\s+/).filter(function(t) { return t.length >= 1; });
+  if (!terms.length || gsNorm(query).trim().length < 2) return null;
+  var out = [];
+  gsBuildIndex().forEach(function(it) {
+    if (kind && it.kind !== kind && !(kind === 'reunion' && it.kind === 'tache')) return;
+    var own = gsNorm(it.label + ' ' + it.sub + ' ' + it.own);
+    var okOwn = terms.every(function(t) { return own.indexOf(t) >= 0; });
+    var score = 0;
+    if (okOwn) score = 3;
+    else {
+      var all = own + ' ' + gsNorm(it.ctx);
+      if (terms.every(function(t) { return all.indexOf(t) >= 0; })) score = 1;
+    }
+    if (!score) return;
+    // bonus si le mot-clé est dans le titre
+    var lab = gsNorm(it.label);
+    if (terms.every(function(t) { return lab.indexOf(t) >= 0; })) score += 2;
+    it.score = score;
+    out.push(it);
+  });
+  out.sort(function(a, b) {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.order !== b.order) return a.order - b.order;
+    return String(b.date || '').localeCompare(String(a.date || ''));
+  });
+  return { terms: terms, items: out };
+}
+
+function gsHighlight(text, terms) {
+  text = String(text == null ? '' : text);
+  var n = gsNorm(text), marks = new Array(text.length).fill(false);
+  terms.forEach(function(t) {
+    if (!t) return;
+    var i = n.indexOf(t);
+    while (i >= 0) { for (var k = i; k < i + t.length; k++) marks[k] = true; i = n.indexOf(t, i + t.length); }
+  });
+  var html = '', open = false;
+  for (var j = 0; j < text.length; j++) {
+    if (marks[j] && !open) { html += '<mark class="gs-mark">'; open = true; }
+    if (!marks[j] && open) { html += '</mark>'; open = false; }
+    html += escapeHtml(text.charAt(j));
+  }
+  if (open) html += '</mark>';
+  return html;
+}
+
+function gsEnsureUI() {
+  if (document.getElementById('gs-overlay')) return;
+  var st = document.createElement('style');
+  st.id = 'gs-style';
+  st.textContent =
+    '#gs-overlay{display:none;position:fixed;inset:0;z-index:20000;background:rgba(26,45,58,.55);backdrop-filter:blur(2px);align-items:flex-start;justify-content:center;padding:6vh 16px 16px}' +
+    '#gs-overlay.show{display:flex}' +
+    '#gs-box{background:var(--surface,#fff);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.35);width:100%;max-width:820px;max-height:86vh;display:flex;flex-direction:column;overflow:hidden}' +
+    '#gs-head{padding:14px 16px 10px;border-bottom:1px solid var(--line,#ddd)}' +
+    '#gs-input{width:100%;box-sizing:border-box;padding:11px 14px;font-size:16px;border:2px solid var(--teal,#0b7a75);border-radius:10px;background:var(--bg-soft,#f6f8f9);color:var(--ink,#1a2d3a);outline:none}' +
+    '#gs-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}' +
+    '.gs-chip{padding:3px 10px;border-radius:12px;border:1px solid var(--line,#ddd);background:var(--surface,#fff);font-size:11.5px;cursor:pointer;color:var(--ink-soft,#456)}' +
+    '.gs-chip.on{background:var(--teal,#0b7a75);color:#fff;border-color:var(--teal,#0b7a75)}' +
+    '#gs-results{overflow-y:auto;padding:6px 12px 14px;flex:1}' +
+    '.gs-group{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-mute,#789);margin:12px 4px 5px}' +
+    '.gs-item{display:flex;gap:10px;padding:9px 11px;border:1px solid var(--line-soft,#e6eaed);border-radius:9px;margin-bottom:5px;cursor:pointer;background:var(--surface,#fff)}' +
+    '.gs-item:hover,.gs-item.act{background:var(--teal-p,#e4f3f2);border-color:var(--teal-b,#9fd3cf)}' +
+    '.gs-ico{font-size:18px;line-height:1.2}' +
+    '.gs-lab{font-size:13.5px;font-weight:600;color:var(--ink,#1a2d3a)}' +
+    '.gs-sub{font-size:11.5px;color:var(--ink-soft,#456);margin-top:1px}' +
+    '.gs-crumb{font-size:11px;color:var(--teal-d,#065a56);margin-top:3px}' +
+    '.gs-assoc{font-size:11px;color:var(--ink-mute,#789);margin-top:2px}' +
+    '.gs-tag{display:inline-block;font-size:10px;font-weight:700;padding:1px 7px;border-radius:9px;margin-left:6px;vertical-align:middle}' +
+    '.gs-done{background:#dff3e4;color:#1d6b3a}.gs-todo{background:#fdf0d5;color:#8a5a00}.gs-arch{background:#eceff1;color:#607d8b}' +
+    '.gs-mark{background:#fcefa6;color:inherit;border-radius:2px;padding:0 1px}' +
+    '#gs-foot{padding:7px 16px;border-top:1px solid var(--line,#ddd);font-size:11px;color:var(--ink-mute,#789);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}' +
+    '.gs-empty{padding:26px 12px;text-align:center;color:var(--ink-mute,#789);font-size:13px;line-height:1.6}' +
+    '@keyframes gsflash{0%,100%{box-shadow:0 0 0 0 rgba(227,201,74,0)}20%,70%{box-shadow:0 0 0 4px rgba(227,201,74,.95)}}.gs-flash{animation:gsflash 2.6s ease-in-out}';
+  document.head.appendChild(st);
+  var ov = document.createElement('div');
+  ov.id = 'gs-overlay';
+  ov.innerHTML =
+    '<div id="gs-box" role="dialog" aria-label="Recherche globale">' +
+      '<div id="gs-head"><input id="gs-input" type="text" autocomplete="off" placeholder="🔍 Rechercher dans tout l\'outil : évènement, réunion, action, projet, support, dépense…" />' +
+      '<div id="gs-chips"></div></div>' +
+      '<div id="gs-results"></div>' +
+      '<div id="gs-foot"><span>↑ ↓ pour naviguer · Entrée pour ouvrir · Échap pour fermer</span><span id="gs-count"></span></div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('mousedown', function(e) { if (e.target === ov) gsClose(); });
+  var inp = document.getElementById('gs-input');
+  inp.addEventListener('input', function() {
+    _gs.query = inp.value;
+    clearTimeout(_gs.timer);
+    _gs.timer = setTimeout(gsRender, 120);
+  });
+  inp.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); gsMove(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); gsMove(-1); }
+    else if (e.key === 'Enter') { e.preventDefault(); gsActivate(_gs.active); }
+  });
+  document.getElementById('gs-results').addEventListener('click', function(e) {
+    var el = e.target.closest ? e.target.closest('.gs-item') : null;
+    if (el) gsActivate(parseInt(el.getAttribute('data-i'), 10));
+  });
+  document.getElementById('gs-chips').addEventListener('click', function(e) {
+    var el = e.target.closest ? e.target.closest('.gs-chip') : null;
+    if (!el) return;
+    _gs.kind = el.getAttribute('data-k') || '';
+    gsRender();
+    inp.focus();
+  });
+}
+
+var GS_KINDS = [['', 'Tout'], ['evenement', 'Évènements'], ['reunion', 'Réunions et tâches'], ['action', 'Actions ACI'], ['projet', 'Projets'], ['commu', 'Communication'], ['depense', 'Dépenses']];
+
+function gsOpen(prefill) {
+  if (typeof EMBED_MODE !== 'undefined' && EMBED_MODE) return;
+  gsEnsureUI();
+  var ov = document.getElementById('gs-overlay'), inp = document.getElementById('gs-input');
+  ov.classList.add('show');
+  _gs.open = true;
+  if (typeof prefill === 'string') { inp.value = prefill; _gs.query = prefill; }
+  else { inp.value = _gs.query || ''; }
+  gsRender();
+  setTimeout(function() { inp.focus(); inp.select(); }, 30);
+}
+function gsClose() {
+  var ov = document.getElementById('gs-overlay');
+  if (ov) ov.classList.remove('show');
+  _gs.open = false;
+}
+
+function gsRender() {
+  var box = document.getElementById('gs-results');
+  if (!box) return;
+  var chips = document.getElementById('gs-chips');
+  chips.innerHTML = GS_KINDS.map(function(k) {
+    return '<span class="gs-chip' + (_gs.kind === k[0] ? ' on' : '') + '" data-k="' + k[0] + '">' + k[1] + '</span>';
+  }).join('');
+  var res = gsSearch(_gs.query, _gs.kind);
+  var countEl = document.getElementById('gs-count');
+  if (!res) {
+    _gs.results = [];
+    box.innerHTML = '<div class="gs-empty"><strong>Tapez au moins 2 lettres.</strong><br>La recherche ignore les accents et les majuscules ; plusieurs mots = tous doivent apparaître.<br>Exemples : <em>Grigny</em> · <em>santé femmes</em> · <em>flyer</em> · <em>Doctolib</em></div>';
+    countEl.textContent = '';
+    return;
+  }
+  var LIMIT = 80;
+  var items = res.items.slice(0, LIMIT);
+  _gs.results = items;
+  _gs.active = 0;
+  if (!items.length) {
+    box.innerHTML = '<div class="gs-empty">Aucun résultat pour « ' + escapeHtml(_gs.query) + ' ».<br>Essayez un seul mot, ou une partie de mot.</div>';
+    countEl.textContent = '0 résultat';
+    return;
+  }
+  // regroupement par type en conservant l'ordre de pertinence
+  var groups = [], byName = {};
+  items.forEach(function(it, i) {
+    it._i = i;
+    if (!byName[it.group]) { byName[it.group] = { name: it.group, order: it.order, list: [] }; groups.push(byName[it.group]); }
+    byName[it.group].list.push(it);
+  });
+  groups.sort(function(a, b) { return a.order - b.order; });
+  var html = '';
+  groups.forEach(function(g) {
+    html += '<div class="gs-group">' + escapeHtml(g.name) + ' (' + g.list.length + ')</div>';
+    g.list.forEach(function(it) {
+      var tag = '';
+      if (it.archived) tag = '<span class="gs-tag gs-arch">Archivé</span>';
+      else if (it.done === true) tag = '<span class="gs-tag gs-done">Réalisé</span>';
+      else if (it.done === false) tag = '<span class="gs-tag gs-todo">À faire</span>';
+      html += '<div class="gs-item" data-i="' + it._i + '"><div class="gs-ico">' + it.icon + '</div><div style="flex:1;min-width:0">' +
+        '<div class="gs-lab">' + gsHighlight(it.label, res.terms) + tag + '</div>' +
+        (it.sub ? '<div class="gs-sub">' + gsHighlight(it.sub, res.terms) + '</div>' : '') +
+        (it.crumb ? '<div class="gs-crumb">📍 Fiche d\'origine : ' + gsHighlight(it.crumb, res.terms) + '</div>' : '') +
+        (it.assoc && it.assoc.length ? '<div class="gs-assoc">🔗 Associé aussi à : ' + gsHighlight(it.assoc.join(' · '), res.terms) + '</div>' : '') +
+        '</div></div>';
+    });
+  });
+  box.innerHTML = html;
+  countEl.textContent = res.items.length + ' résultat' + (res.items.length > 1 ? 's' : '') + (res.items.length > LIMIT ? ' (80 premiers affichés — précisez la recherche)' : '');
+  gsSetActive(0, false);
+}
+
+function gsSetActive(i, scroll) {
+  var els = document.querySelectorAll('#gs-results .gs-item');
+  if (!els.length) return;
+  i = Math.max(0, Math.min(els.length - 1, i));
+  els.forEach(function(e) { e.classList.remove('act'); });
+  var target = document.querySelector('#gs-results .gs-item[data-i="' + i + '"]');
+  if (target) { target.classList.add('act'); if (scroll !== false) target.scrollIntoView({ block: 'nearest' }); }
+  _gs.active = i;
+}
+function gsMove(d) { gsSetActive(_gs.active + d, true); }
+
+function gsActivate(i) {
+  var it = _gs.results[i];
+  if (!it) return;
+  gsClose();
+  try { (new Function(it.open))(); } catch (e) { console.error('gsActivate', e); if (typeof toast === 'function') toast('Impossible d\'ouvrir cet élément'); return; }
+  if (it.flashList) setTimeout(function() { gsFlash(it); }, 300);
+}
+
+// Met brièvement en surbrillance le bloc de l'évènement / de la réunion dans la fiche ouverte
+function gsFlash(it) {
+  try {
+    var listEl = null;
+    if (it.flashList === 'evt') listEl = document.getElementById('evt-list');
+    else if (typeof reunionListElId === 'function') listEl = document.getElementById(reunionListElId());
+    if (!listEl || !it.flashTitle) return;
+    var want = gsNorm(it.flashTitle).trim();
+    var kids = Array.prototype.slice.call(listEl.children);
+    var hit = kids.find(function(k) {
+      var inputs = Array.prototype.map.call(k.querySelectorAll('input[type=text]'), function(x) { return x.value; }).join(' ');
+      return gsNorm(k.textContent + ' ' + inputs).indexOf(want) >= 0;
+    });
+    if (!hit) return;
+    hit.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    hit.classList.remove('gs-flash'); void hit.offsetWidth; hit.classList.add('gs-flash');
+  } catch (e) {}
+}
+
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    if (_gs.open) gsClose(); else gsOpen();
+  } else if (e.key === 'Escape' && _gs.open) {
+    e.preventDefault(); e.stopPropagation(); gsClose();
+  }
+}, true);
+
 
 /* ============================================================
    « DONNÉES CPAM/ARS » — identifiant jaune d'attribution
@@ -9557,6 +9949,10 @@ function renderModeOp() {
       '<p>Un document ajoute depuis le Drive peut afficher « 404 » s\'il a ete renomme ou deplace apres son ajout. Connectez-vous a SharePoint (bouton <strong>&#9729;&#65039;</strong>), puis cliquez sur <strong>&#128279; Reparer les liens</strong> dans la barre du haut : l\'outil verifie chaque document, vous montre le bilan, puis met a jour les liens perimes quand vous cliquez sur <strong>Appliquer</strong>. Les documents introuvables ne sont jamais modifies.</p>' +
       '<p>Au quotidien, le bouton <strong>&#128065;</strong> d\'un document retrouve aussi automatiquement le lien a jour avant de l\'ouvrir (connexion SharePoint necessaire).</p>'
     ],
+    ['🔍 Retrouver un element avec la recherche globale',
+      '<p>Cliquez sur <strong>&#128269; Rechercher</strong> en haut de l\'ecran, ou tapez <strong>Ctrl + K</strong>, puis saisissez un mot-cle (ex. <em>Grigny</em>, <em>flyer</em>, <em>Doctolib</em>). La recherche ignore les accents et les majuscules ; avec plusieurs mots, tous doivent apparaitre.</p>' +
+      '<p>Les resultats sont ranges par type : evenements, reunions et taches, actions, projets, communication, depenses. Chaque ligne indique la <strong>fiche d\'origine</strong> (mission &rsaquo; action &rsaquo; planification) et, pour un evenement, les autres actions auxquelles il est associe. Cliquez (ou Entree) pour ouvrir la fiche au bon endroit ; l\'evenement est mis en surbrillance. Les puces sous la barre filtrent par type. Echap ferme la recherche.</p>'
+    ],
     ['🟡 Attribution : Pilote, Co-pilote, Appui et « Donnees CPAM/ARS »',
       '<p>Dans la fiche action (onglet Descriptif, bloc <strong>Attribution</strong>), choisissez le <strong>pilote principal</strong>, puis pour chacune des autres coordinatrices le role : <strong>Co-pilote</strong> ou <strong>Appui</strong> (ou aucun). Tout est modifiable a volonte ; les pastilles P, Co et A l\'affichent dans les tableaux.</p>' +
       '<p>Les actions dont la cible est une augmentation ou une diminution mesuree par la CPAM ou l\'ARS se rangent sous l\'identifiant jaune <strong>&#128202; Donnees CPAM/ARS</strong> (liste deroulante du pilote). Elles n\'ont <strong>aucune coordinatrice</strong> et ne suivent que le <strong>statut CPAM</strong> : pas de statut CPTS, absentes du Kanban et des compteurs CPTS. L\'attribution precedente est conservee dans la fiche. Filtre : &laquo; Donnees CPAM/ARS &raquo; dans la liste des coordinatrices de l\'onglet Missions.</p>'
@@ -10385,6 +10781,7 @@ function renderLexique() {
     ['Part variable', "Financement conditionné au niveau d'atteinte des objectifs contractuels. Peut être proratisé (*)."],
     ['Pièces à fournir', "Checklist opérationnelle d'une fiche action (Documents & liens) : documents à produire et à déposer, cochés au fur et à mesure. Distincte des livrables attendus de l'avenant."],
     ['Lien « 404 »', "Un document ouvert depuis un ancien lien « par chemin » affiche 404 s'il a été renommé ou déplacé. Le bouton « Réparer les liens » retrouve le lien à jour à partir de l'identifiant du fichier."],
+    ['Recherche globale (Ctrl+K)', "Barre de recherche qui parcourt tout l'outil (évènements, réunions, tâches, actions, projets, communication, dépenses) et indique la fiche d'origine de chaque résultat."],
     ['Données CPAM/ARS', "Identifiant jaune d'attribution : action dont la cible (augmentation / diminution) est mesurée par la CPAM ou l'ARS. Aucune coordinatrice (ni pilote, ni co-pilote, ni appui) ; seul le statut CPAM s'applique, pas de statut CPTS."],
     ['Co-pilote / Appui', "Rôles d'une coordinatrice sur une action, à côté du pilote principal : le co-pilote partage le pilotage, l'appui contribue sans piloter. Modifiables dans la fiche action."],
     ['PRADO', "Programme de Retour À DOmicile — dispositif de l'Assurance Maladie pour la sortie d'hospitalisation."],
