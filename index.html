@@ -6788,8 +6788,11 @@ document.addEventListener('click', function(e) {
 // Récapitulatif : tableau de tous les évènements + actions sans évènement
 // Filtres du Récapitulatif des actions
 var _recapFilterType = '';
-var _recapFilterMission = '';
+var _recapFilterMission = '';   // (ancien filtre mission : supprimé, le récapitulatif est désormais groupé par mission)
 var _recapFilterCoord = '';
+var _recapFilterDone = '';      // '' | 'done' | 'todo'
+var _recapOpenGroups = {};      // id de mission -> false si repliée (dépliées par défaut)
+var _recapGroupIds = [];
 
 function renderRecapEvenementsHTML() {
   // Collecter tous les évènements de toutes les actions
@@ -6926,240 +6929,219 @@ function renderRecapEvenementsHTML() {
   });
   allTypes.sort();
 
-  // Lire les filtres
   var filterType = _recapFilterType || '';
-  var filterMission = _recapFilterMission || '';
+  var filterCoord = _recapFilterCoord || '';
+  var filterDone = _recapFilterDone || '';       // '' = tous · 'done' = réalisés · 'todo' = non réalisés
+  var todayISO = new Date().toISOString().slice(0, 10);
 
-  // Appliquer les filtres
-  var filteredEvts = evts.filter(function(ev) {
+  // Filtres communs (type + coordinatrice), SANS le filtre réalisé : sert aux compteurs d'avancement
+  var evtsBase = evts.filter(function(ev) {
     if (filterType && ev.type !== filterType) return false;
-    if (filterMission && ev.missionId !== filterMission) return false;
-    if (_recapFilterCoord && (ev.animatrices||[]).indexOf(_recapFilterCoord) < 0) return false;
+    if (filterCoord && (ev.animatrices||[]).indexOf(filterCoord) < 0) return false;
     return true;
   });
+  var reuBase = reunions.filter(function(r) {
+    if (filterCoord && (r.coords||[]).indexOf(filterCoord) < 0) return false;
+    return true;
+  });
+  function passDone(x) { return !filterDone || (filterDone === 'done' ? x.done : !x.done); }
+  var sansBase = actionsSansEvt.filter(function(a) {
+    if (!filterCoord) return true;
+    return a.owner === filterCoord || (a.coOwners||[]).indexOf(filterCoord) >= 0;
+  });
+
+  // --- Définition des groupes (comme dans le Kanban : une section par mission) ---
+  var groups = MISSIONS.map(function(m) {
+    return { id: 'm_' + m.id, missionId: m.id, label: m.label, short: m.short, mission: m };
+  });
+  groups.push({ id: 'm__projet', missionId: '_projet', label: '🚀 Projets hors ACI', short: 'Projets hors ACI' });
+  groups.push({ id: 'm__evenement', missionId: '_evenement', label: '🎉 Évènements hors ACI', short: 'Évènements hors ACI' });
+  var known = {};
+  groups.forEach(function(g) { known[g.missionId] = true; });
+  var orphan = evtsBase.some(function(e){ return !known[e.missionId]; }) || reuBase.some(function(r){ return !known[r.missionId]; }) || sansBase.some(function(a){ return !known[a.mission]; });
+  if (orphan) groups.push({ id: 'm__none', missionId: '__none', label: 'Sans mission', short: 'Sans mission' });
+  function inGroup(g, mid) { return g.missionId === '__none' ? !known[mid] : mid === g.missionId; }
+
+  // Pastille de statut d'une ligne
+  function statusPill(done, date) {
+    var st, col;
+    if (done) { st = '✅ Réalisé'; col = 'var(--ok)'; }
+    else if (!date) { st = '🗓 À planifier'; col = 'var(--ink-mute)'; }
+    else if (date < todayISO) { st = '⏰ Date passée'; col = 'var(--warn)'; }
+    else { st = '⏳ À venir'; col = 'var(--teal-d)'; }
+    return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;white-space:nowrap;border:1px solid ' + col + ';color:' + col + '">' + st + '</span>';
+  }
+  function personPills(list) {
+    if (!list || !list.length) return '<span style="color:var(--ink-mute)">—</span>';
+    if (list.length >= 3) {
+      var ec = collabColor('Ensemble');
+      return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;background:' + ec.bg + ';color:' + ec.text + '">Ensemble</span>';
+    }
+    return list.map(function(n) {
+      var c = collabColor(n);
+      return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;background:' + c.bg + ';color:' + c.text + ';margin-right:3px">' + escapeHtml(n) + '</span>';
+    }).join('');
+  }
+  function chips(list) {
+    return list && list.length
+      ? list.map(function(m){ return '<span style="display:inline-block;padding:2px 7px;border-radius:8px;font-size:10.5px;background:var(--teal-p);color:var(--teal-d);margin:1px">' + escapeHtml(m) + '</span>'; }).join('')
+      : '<span style="color:var(--ink-mute)">—</span>';
+  }
+  var thS = 'padding:8px 12px;font-weight:600;color:var(--ink-soft)';
+  var tdS = 'padding:8px 12px';
+  function subHead(icon, label, n, bg) {
+    return '<div style="padding:8px 14px;background:' + bg + ';font-size:12px;font-weight:700;color:var(--ink-soft);border-top:1px solid var(--line-soft)">'
+      + icon + ' ' + label + ' <span style="font-weight:500;color:var(--ink-mute)">— ' + n + '</span></div>';
+  }
 
   var html = '<h2 class="section-title" style="margin:0 0 14px">Récapitulatif des actions</h2>';
 
-  // --- Barre de filtres ---
+  // --- Barre de filtres : type d'évènement · coordinatrice · réalisés / non réalisés ---
+  var selStyle = 'padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;background:var(--surface)';
   html += '<div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">';
   html += '<span style="font-size:12px;font-weight:600;color:var(--ink-mute)">Filtrer :</span>';
-  // Filtre par type d'évènement
-  html += '<select id="recap-filter-type" onchange="_recapFilterType=this.value;renderSuivi()" '
-    + 'style="padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;background:var(--surface)">'
-    + '<option value="">— Tous les types —</option>';
+  html += '<select id="recap-filter-type" onchange="_recapFilterType=this.value;renderSuivi()" style="' + selStyle + '">'
+    + '<option value="">— Tous les types d\'évènement —</option>';
   allTypes.forEach(function(t) {
     html += '<option value="' + escapeHtml(t) + '"' + (filterType === t ? ' selected' : '') + '>' + escapeHtml(t) + '</option>';
   });
   html += '</select>';
-  // Filtre par mission ACI
-  html += '<select id="recap-filter-mission" onchange="_recapFilterMission=this.value;renderSuivi()" '
-    + 'style="padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;background:var(--surface)">'
-    + '<option value="">— Toutes les missions —</option>';
-  MISSIONS.forEach(function(m) {
-    html += '<option value="' + m.id + '"' + (filterMission === m.id ? ' selected' : '') + '>' + escapeHtml(m.label) + '</option>';
-  });
-  html += '<option value="_projet"' + (filterMission === '_projet' ? ' selected' : '') + '>🚀 Projets hors ACI</option>';
-  html += '<option value="_evenement"' + (filterMission === '_evenement' ? ' selected' : '') + '>🎉 Évènements hors ACI</option>';
-  html += '</select>';
-  // Filtre par coordinatrice (évènements via animatrices, réunions/tâches via coords)
-  var filterCoord = _recapFilterCoord || '';
-  html += '<select id="recap-filter-coord" onchange="_recapFilterCoord=this.value;renderSuivi()" '
-    + 'style="padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;background:var(--surface)">'
+  html += '<select id="recap-filter-coord" onchange="_recapFilterCoord=this.value;renderSuivi()" style="' + selStyle + '">'
     + '<option value="">👥 Toutes coordinatrices</option>'
-    + '<option value="Yayi"' + (filterCoord === 'Yayi' ? ' selected' : '') + '>Yayi</option>'
-    + '<option value="Yoanna"' + (filterCoord === 'Yoanna' ? ' selected' : '') + '>Yoanna</option>'
-    + '<option value="Margaux"' + (filterCoord === 'Margaux' ? ' selected' : '') + '>Margaux</option>'
+    + ['Yayi', 'Yoanna', 'Margaux'].map(function(n) { return '<option value="' + n + '"' + (filterCoord === n ? ' selected' : '') + '>' + n + '</option>'; }).join('')
     + '</select>';
-  // Filtrer aussi les réunions
-  var filteredReunions = reunions.filter(function(r) {
-    if (filterMission && r.missionId !== filterMission) return false;
-    if (_recapFilterCoord && (r.coords||[]).indexOf(_recapFilterCoord) < 0) return false;
-    return true;
-  });
-  // Compteur résultats filtrés
-  if (filterType || filterMission || _recapFilterCoord) {
-    html += '<span style="font-size:11.5px;color:var(--teal-d);font-weight:600">' + filteredEvts.length + ' / ' + evts.length + ' évènement' + (evts.length > 1 ? 's' : '') + '</span>';
-    html += '<button onclick="_recapFilterType=\'\';_recapFilterMission=\'\';_recapFilterCoord=\'\';renderSuivi()" '
+  html += '<select id="recap-filter-done" onchange="_recapFilterDone=this.value;renderSuivi()" style="' + selStyle + '">'
+    + '<option value="">☑️ Réalisés et non réalisés</option>'
+    + '<option value="done"' + (filterDone === 'done' ? ' selected' : '') + '>✅ Réalisés uniquement</option>'
+    + '<option value="todo"' + (filterDone === 'todo' ? ' selected' : '') + '>⏳ Non réalisés uniquement</option>'
+    + '</select>';
+  if (filterType || filterCoord || filterDone) {
+    html += '<button onclick="_recapFilterType=\'\';_recapFilterCoord=\'\';_recapFilterDone=\'\';renderSuivi()" '
       + 'style="padding:4px 10px;background:var(--bg-soft);border:1px solid var(--line);border-radius:5px;cursor:pointer;font-size:11px;color:var(--ink-mute)">✕ Réinitialiser</button>';
   }
+  html += '<span style="margin-left:auto;display:flex;gap:6px">'
+    + '<button onclick="recapSetAllGroups(true)" style="padding:4px 10px;background:var(--bg-soft);border:1px solid var(--line);border-radius:5px;cursor:pointer;font-size:11px;color:var(--ink-mute)">▾ Tout déplier</button>'
+    + '<button onclick="recapSetAllGroups(false)" style="padding:4px 10px;background:var(--bg-soft);border:1px solid var(--line);border-radius:5px;cursor:pointer;font-size:11px;color:var(--ink-mute)">▸ Tout plier</button></span>';
   html += '</div>';
 
-  // --- Tableau des évènements ---
-  html += '<div class="card" style="padding:0;overflow:hidden;margin-bottom:18px">';
-  html += '<div style="padding:12px 16px;background:var(--teal-p);border-bottom:1px solid var(--teal-b)">'
-    + '<strong style="font-size:13px;color:var(--teal-d)">📅 Évènements planifiés</strong> '
-    + '<span style="font-size:11.5px;color:var(--ink-mute)">— ' + filteredEvts.length + ' évènement' + (filteredEvts.length>1?'s':'') + '</span></div>';
+  _recapGroupIds = groups.map(function(g) { return g.id; });
+  var anyShown = false;
 
-  if (!filteredEvts.length) {
-    html += '<div style="padding:20px;text-align:center;color:var(--ink-mute);font-size:12.5px;font-style:italic">'
-      + (evts.length ? 'Aucun évènement ne correspond aux filtres sélectionnés.' : 'Aucun évènement planifié pour l\'instant.')
+  groups.forEach(function(g) {
+    var gEvtsAll = evtsBase.filter(function(e){ return inGroup(g, e.missionId); });
+    var gReuAll  = reuBase.filter(function(r){ return inGroup(g, r.missionId); });
+    var gSansAll = g.mission || g.missionId === '__none' ? sansBase.filter(function(a){ return inGroup(g, a.mission); }) : [];
+    var gEvts = gEvtsAll.filter(passDone);
+    var gReu  = gReuAll.filter(passDone);
+    var gSans = filterDone === 'done' ? [] : gSansAll;
+
+    var total = gEvtsAll.length + gReuAll.length;
+    var nDone = gEvtsAll.filter(function(e){ return e.done; }).length + gReuAll.filter(function(r){ return r.done; }).length;
+    var nShown = gEvts.length + gReu.length + gSans.length;
+    // Avec un filtre actif, on masque les missions sans résultat ; sans filtre, on garde les 5 missions ACI
+    var anyFilter = !!(filterType || filterCoord || filterDone);
+    if (!nShown && (anyFilter || !g.mission)) return;
+    anyShown = true;
+
+    var accent = g.mission ? 'var(--' + g.mission.classe + ')' : (g.missionId === '_projet' ? '#a8930a' : g.missionId === '_evenement' ? '#a8306a' : 'var(--ink-mute)');
+    var accentP = g.mission ? 'var(--' + g.mission.classe + '-p)' : 'var(--bg-soft)';
+    var open = _recapOpenGroups[g.id] !== false;
+    var pct = total ? Math.round(nDone * 100 / total) : 0;
+
+    html += '<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px;border-left:4px solid ' + accent + '">';
+    html += '<div onclick="recapToggleGroup(\'' + g.id + '\')" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 16px;cursor:pointer;background:' + accentP + '">'
+      + '<span style="font-size:10px;display:inline-block;transition:transform .15s;transform:rotate(' + (open ? '90' : '0') + 'deg);color:' + accent + '">▸</span>'
+      + '<strong style="font-size:13.5px;color:' + accent + ';flex:1;min-width:200px">' + escapeHtml(g.label) + '</strong>'
+      + '<span style="font-size:11.5px;color:var(--ink-soft)">'
+      +   gEvtsAll.length + ' évènement' + (gEvtsAll.length > 1 ? 's' : '') + ' · ' + gReuAll.length + ' réunion' + (gReuAll.length > 1 ? 's' : '') + '/tâche' + (gReuAll.length > 1 ? 's' : '')
+      +   (gSansAll.length ? ' · <span style="color:var(--warn);font-weight:600">' + gSansAll.length + ' à planifier</span>' : '')
+      + '</span>'
+      + '<span style="display:flex;align-items:center;gap:7px;min-width:170px">'
+      +   '<span style="flex:1;height:7px;border-radius:4px;background:rgba(0,0,0,.08);overflow:hidden"><span style="display:block;height:100%;width:' + pct + '%;background:var(--ok)"></span></span>'
+      +   '<span style="font-size:11.5px;font-weight:700;color:var(--ink-soft);white-space:nowrap">' + nDone + ' / ' + total + ' réalisés</span>'
+      + '</span>'
       + '</div>';
-  } else {
-    html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">';
-    html += '<thead><tr style="background:var(--bg-soft);text-align:left">'
-      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Titre</th>'
-      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Date</th>'
-      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Type</th>'
-      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Animatrices</th>'
-      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Actions / projets associés</th>'
-      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Mission ACI</th>'
-      + '</tr></thead><tbody>';
-    filteredEvts.forEach(function(ev) {
-      // Pastilles animatrices
-      var animHTML = '';
-      if (ev.animatrices.length >= 3) {
-        var ec = collabColor('Ensemble');
-        animHTML = '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;background:' + ec.bg + ';color:' + ec.text + '">Ensemble</span>';
-      } else {
-        animHTML = ev.animatrices.map(function(n) {
-          var c = collabColor(n);
-          return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;background:' + c.bg + ';color:' + c.text + ';margin-right:3px">' + escapeHtml(n) + '</span>';
-        }).join('');
+
+    if (open) {
+      if (!nShown) {
+        html += '<div style="padding:16px;text-align:center;color:var(--ink-mute);font-size:12.5px;font-style:italic">Aucun élément planifié pour cette mission.</div>';
       }
-      if (!animHTML) animHTML = '<span style="color:var(--ink-mute)">—</span>';
-
-      var missionsHTML = ev.missions.length
-        ? ev.missions.map(function(m){ return '<span style="display:inline-block;padding:2px 7px;border-radius:8px;font-size:10.5px;background:var(--teal-p);color:var(--teal-d);margin:1px">' + escapeHtml(m) + '</span>'; }).join('')
-        : '<span style="color:var(--ink-mute)">—</span>';
-
-      // Badge Mission ACI source
-      var missionBadge = '';
-      if (ev.missionId === '_projet') {
-        missionBadge = '<span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:10.5px;font-weight:600;background:#fdfae8;color:#a8930a;border:1px solid #e8dca0">🚀 Hors ACI</span>';
-      } else {
-        var mObj = MISSION_BY_ID[ev.missionId];
-        if (mObj) {
-          var mColorVar = '--' + mObj.classe;
-          var mColorPVar = '--' + mObj.classe + '-p';
-          missionBadge = '<span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:10.5px;font-weight:600;background:var(' + mColorPVar + ');color:var(' + mColorVar + ');border:1px solid var(' + mColorVar + ',var(--line))">' + escapeHtml(mObj.short) + '</span>';
-        } else {
-          missionBadge = '<span style="color:var(--ink-mute)">—</span>';
-        }
+      // Évènements (chronologique)
+      if (gEvts.length) {
+        html += subHead('📅', 'Évènements planifiés', gEvts.length, 'var(--bg-soft)');
+        html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">';
+        html += '<thead><tr style="text-align:left">'
+          + '<th style="' + thS + '">Titre</th><th style="' + thS + '">Date</th><th style="' + thS + '">Type</th>'
+          + '<th style="' + thS + '">Animatrices</th><th style="' + thS + '">Actions / projets associés</th><th style="' + thS + '">Statut</th></tr></thead><tbody>';
+        gEvts.forEach(function(ev) {
+          var clickFn = ev.isProjet ? "openProjetModal('" + ev.actionId + "')" : "openActionModal('" + ev.actionId + "')";
+          var st = ev.done ? 'opacity:.6;text-decoration:line-through' : '';
+          html += '<tr style="border-top:1px solid var(--line-soft);cursor:pointer" onclick="' + clickFn + '" onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'\'">'
+            + '<td style="' + tdS + ';font-weight:600;color:var(--ink);' + st + '">' + (ev.journeePrev ? '🎯 ' : '📅 ') + escapeHtml(ev.titre) + '</td>'
+            + '<td style="' + tdS + ';color:' + (ev.date ? 'var(--ink-soft)' : 'var(--ink-mute)') + '">' + (ev.date ? fmt.date(ev.date) : '— à définir') + '</td>'
+            + '<td style="' + tdS + ';color:var(--ink-soft)">' + (ev.type ? escapeHtml(ev.type) : '—') + '</td>'
+            + '<td style="' + tdS + '">' + personPills(ev.animatrices) + '</td>'
+            + '<td style="' + tdS + '">' + chips(ev.missions) + '</td>'
+            + '<td style="' + tdS + '">' + statusPill(ev.done, ev.date) + '</td>'
+            + '</tr>';
+        });
+        html += '</tbody></table></div>';
       }
-
-      // Clic : ouvrir la fiche source (action ACI ou projet)
-      var clickFn = ev.isProjet
-        ? "openProjetModal('" + ev.actionId + "')"
-        : "openActionModal('" + ev.actionId + "')";
-
-      var evDoneStyle = ev.done ? 'opacity:.55;text-decoration:line-through' : '';
-      html += '<tr style="border-top:1px solid var(--line-soft);cursor:pointer" onclick="' + clickFn + '" onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'\'">'
-        + '<td style="padding:9px 14px;font-weight:600;color:var(--ink);' + evDoneStyle + '">' + (ev.done ? '✅ ' : (ev.journeePrev ? '🎯 ' : '📅 ')) + escapeHtml(ev.titre) + '</td>'
-        + '<td style="padding:9px 14px;color:' + (ev.date ? 'var(--ink-soft)' : 'var(--ink-mute)') + '">' + (ev.date ? fmt.date(ev.date) : '— à définir') + '</td>'
-        + '<td style="padding:9px 14px;color:var(--ink-soft)">' + (ev.type ? escapeHtml(ev.type) : '—') + '</td>'
-        + '<td style="padding:9px 14px">' + animHTML + '</td>'
-        + '<td style="padding:9px 14px">' + missionsHTML + '</td>'
-        + '<td style="padding:9px 14px">' + missionBadge + '</td>'
-        + '</tr>';
-    });
-    html += '</tbody></table></div>';
-  }
-  html += '</div>';
-
-  // --- Tableau des réunions et tâches ---
-  html += '<div class="card" style="padding:0;overflow:hidden;margin-bottom:18px">';
-  html += '<div style="padding:12px 16px;background:var(--col-yoanna-p,#efe7f8);border-bottom:1px solid #d8c9ec">'
-    + '<strong style="font-size:13px;color:#5a3a8a">📌 Réunions et tâches</strong> '
-    + '<span style="font-size:11.5px;color:var(--ink-mute)">— ' + filteredReunions.length + ' élément' + (filteredReunions.length>1?'s':'') + '</span></div>';
-
-  if (!filteredReunions.length) {
-    html += '<div style="padding:20px;text-align:center;color:var(--ink-mute);font-size:12.5px;font-style:italic">'
-      + (reunions.length ? 'Aucune réunion/tâche ne correspond aux filtres sélectionnés.' : 'Aucune réunion ou tâche pour l\'instant.')
-      + '</div>';
-  } else {
-    html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">';
-    html += '<thead><tr style="background:var(--bg-soft);text-align:left">'
-      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Intitulé</th>'
-      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Date</th>'
-      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Heure</th>'
-      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Coordinatrices</th>'
-      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Rattachée à</th>'
-      + '<th style="padding:9px 14px;font-weight:600;color:var(--ink-soft)">Mission / cadre</th>'
-      + '</tr></thead><tbody>';
-    filteredReunions.forEach(function(r) {
-      // Pastilles coordinatrices
-      var coordsHTML = '';
-      if (r.coords.length >= 3) {
-        var ec2 = collabColor('Ensemble');
-        coordsHTML = '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;background:' + ec2.bg + ';color:' + ec2.text + '">Ensemble</span>';
-      } else {
-        coordsHTML = r.coords.map(function(n) {
-          var c = collabColor(n);
-          return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;background:' + c.bg + ';color:' + c.text + ';margin-right:3px">' + escapeHtml(n) + '</span>';
-        }).join('');
+      // Réunions et tâches (chronologique)
+      if (gReu.length) {
+        html += subHead('📌', 'Réunions et tâches', gReu.length, 'var(--bg-soft)');
+        html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">';
+        html += '<thead><tr style="text-align:left">'
+          + '<th style="' + thS + '">Intitulé</th><th style="' + thS + '">Date</th><th style="' + thS + '">Heure</th>'
+          + '<th style="' + thS + '">Coordinatrices</th><th style="' + thS + '">Rattachée à</th><th style="' + thS + '">Statut</th></tr></thead><tbody>';
+        gReu.forEach(function(r) {
+          var rClickFn = r.parentKind === 'projet' ? "openProjetModal('" + r.parentId + "')"
+            : r.parentKind === 'evenement' ? "openEvenementModal('" + r.parentId + "')"
+            : "openActionModal('" + r.parentId + "')";
+          var st = r.done ? 'opacity:.6;text-decoration:line-through' : '';
+          html += '<tr style="border-top:1px solid var(--line-soft);cursor:pointer" onclick="' + rClickFn + '" onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'\'">'
+            + '<td style="' + tdS + ';font-weight:600;color:var(--ink);' + st + '">📌 ' + escapeHtml(r.titre) + '</td>'
+            + '<td style="' + tdS + ';color:' + (r.date ? 'var(--ink-soft)' : 'var(--ink-mute)') + '">' + (r.date ? fmt.date(r.date) : '— Kanban') + '</td>'
+            + '<td style="' + tdS + ';color:var(--ink-soft)">' + (r.heure ? escapeHtml(r.heure) : '—') + '</td>'
+            + '<td style="' + tdS + '">' + personPills(r.coords) + '</td>'
+            + '<td style="' + tdS + '">' + chips(r.missions) + '</td>'
+            + '<td style="' + tdS + '">' + statusPill(r.done, r.date) + '</td>'
+            + '</tr>';
+        });
+        html += '</tbody></table></div>';
       }
-      if (!coordsHTML) coordsHTML = '<span style="color:var(--ink-mute)">—</span>';
-
-      var rMissionsHTML = r.missions.length
-        ? r.missions.map(function(m){ return '<span style="display:inline-block;padding:2px 7px;border-radius:8px;font-size:10.5px;background:var(--teal-p);color:var(--teal-d);margin:1px">' + escapeHtml(m) + '</span>'; }).join('')
-        : '<span style="color:var(--ink-mute)">—</span>';
-
-      // Badge cadre
-      var cadreBadge = '';
-      if (r.missionId === '_projet') {
-        cadreBadge = '<span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:10.5px;font-weight:600;background:#fdfae8;color:#a8930a;border:1px solid #e8dca0">🚀 Hors ACI</span>';
-      } else if (r.missionId === '_evenement') {
-        cadreBadge = '<span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:10.5px;font-weight:600;background:#fdf0f8;color:#a8306a;border:1px solid #ecc0da">🎉 Évènement</span>';
-      } else {
-        var mObj2 = MISSION_BY_ID[r.missionId];
-        if (mObj2) {
-          var mCV = '--' + mObj2.classe, mCPV = '--' + mObj2.classe + '-p';
-          cadreBadge = '<span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:10.5px;font-weight:600;background:var(' + mCPV + ');color:var(' + mCV + ')">' + escapeHtml(mObj2.short) + '</span>';
-        } else { cadreBadge = '<span style="color:var(--ink-mute)">—</span>'; }
+      // Actions de la mission sans évènement planifié
+      if (gSans.length) {
+        html += subHead('⏳', 'Actions sans évènement planifié', gSans.length, 'var(--bg-soft)');
+        html += '<div style="padding:6px 8px">';
+        gSans.forEach(function(a) {
+          html += '<div onclick="openActionModal(\'' + a.id + '\')" style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:6px;cursor:pointer;margin-bottom:2px" '
+            + 'onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'\'">'
+            + '<span style="width:6px;height:6px;border-radius:50%;background:var(--warn);flex-shrink:0"></span>'
+            + '<span style="flex:1;font-size:12.5px;color:var(--ink)">' + escapeHtml(a.titre) + '</span>'
+            + '<span style="font-size:10.5px;color:var(--ink-mute)">' + fmt.statutLabel(resolveStatut(a)) + '</span>'
+            + '<span style="font-size:11px;color:var(--ink-mute)">›</span></div>';
+        });
+        html += '</div>';
       }
-
-      var rClickFn = r.parentKind === 'projet'
-        ? "openProjetModal('" + r.parentId + "')"
-        : r.parentKind === 'evenement'
-          ? "openEvenementModal('" + r.parentId + "')"
-          : "openActionModal('" + r.parentId + "')";
-
-      var doneStyle = r.done ? 'opacity:.55;text-decoration:line-through' : '';
-      html += '<tr style="border-top:1px solid var(--line-soft);cursor:pointer" onclick="' + rClickFn + '" onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'\'">'
-        + '<td style="padding:9px 14px;font-weight:600;color:var(--ink);' + doneStyle + '">' + (r.done ? '✅ ' : '📌 ') + escapeHtml(r.titre) + '</td>'
-        + '<td style="padding:9px 14px;color:' + (r.date ? 'var(--ink-soft)' : 'var(--ink-mute)') + '">' + (r.date ? fmt.date(r.date) : '— Kanban') + '</td>'
-        + '<td style="padding:9px 14px;color:var(--ink-soft)">' + (r.heure ? escapeHtml(r.heure) : '—') + '</td>'
-        + '<td style="padding:9px 14px">' + coordsHTML + '</td>'
-        + '<td style="padding:9px 14px">' + rMissionsHTML + '</td>'
-        + '<td style="padding:9px 14px">' + cadreBadge + '</td>'
-        + '</tr>';
-    });
-    html += '</tbody></table></div>';
-  }
-  html += '</div>';
-
-  // --- Liste des actions sans évènement ---
-  html += '<div class="card" style="padding:0;overflow:hidden">';
-  html += '<div style="padding:12px 16px;background:var(--bg-soft);border-bottom:1px solid var(--line)">'
-    + '<strong style="font-size:13px;color:var(--ink-soft)">⏳ Actions sans évènement planifié</strong> '
-    + '<span style="font-size:11.5px;color:var(--ink-mute)">— ' + actionsSansEvt.length + ' action' + (actionsSansEvt.length>1?'s':'') + '</span></div>';
-
-  if (!actionsSansEvt.length) {
-    html += '<div style="padding:20px;text-align:center;color:var(--ok);font-size:12.5px">✅ Toutes les actions ont au moins un évènement planifié.</div>';
-  } else {
-    html += '<div style="padding:8px">';
-    // Grouper par mission
-    MISSIONS.forEach(function(m) {
-      var acts = actionsSansEvt.filter(function(a){ return a.mission === m.id; });
-      if (!acts.length) return;
-      html += '<div style="margin-bottom:6px">'
-        + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--teal-d);padding:6px 10px">' + escapeHtml(m.short) + '</div>';
-      acts.forEach(function(a) {
-        html += '<div onclick="openActionModal(\'' + a.id + '\')" style="display:flex;align-items:center;gap:8px;padding:7px 14px;border-radius:6px;cursor:pointer;margin-bottom:2px" '
-          + 'onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'\'">'
-          + '<span style="width:6px;height:6px;border-radius:50%;background:var(--ink-light);flex-shrink:0"></span>'
-          + '<span style="flex:1;font-size:12.5px;color:var(--ink)">' + escapeHtml(a.titre) + '</span>'
-          + '<span style="font-size:10.5px;color:var(--ink-mute)">' + fmt.statutLabel(resolveStatut(a)) + '</span>'
-          + '<span style="font-size:11px;color:var(--ink-mute)">›</span>'
-          + '</div>';
-      });
-      html += '</div>';
-    });
+    }
     html += '</div>';
-  }
-  html += '</div>';
+  });
 
+  if (!anyShown) {
+    html += '<div class="card" style="padding:24px;text-align:center;color:var(--ink-mute);font-size:12.5px;font-style:italic">Aucun élément ne correspond aux filtres sélectionnés.</div>';
+  }
   return html;
+}
+
+// Replier / déplier une mission du Récapitulatif (ouvertes par défaut)
+function recapToggleGroup(gid) {
+  _recapOpenGroups[gid] = (_recapOpenGroups[gid] === false);
+  renderSuivi();
+}
+function recapSetAllGroups(open) {
+  (_recapGroupIds || []).forEach(function(id) { _recapOpenGroups[id] = !!open; });
+  renderSuivi();
 }
 
 function renderSuivi() {
