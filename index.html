@@ -6151,13 +6151,13 @@ function openActionsRecapModal(statut) {
   } else if (statut === 'a_lancer') {
     body = '<ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:7px">' +
       acts.map(function(a) {
-        return '<li style="font-size:12.5px;cursor:pointer" onclick="closeActionsRecapModal();openActionModal(\'' + a.id + '\')"><strong>' + escapeHtml(a.titre) + '</strong></li>';
+        return '<li style="font-size:12.5px;cursor:pointer" onclick="closeActionsRecapModal();openActionModal(\'' + a.id + '\',\'planification\')"><strong>' + escapeHtml(a.titre) + '</strong></li>';
       }).join('') +
       '</ul>';
   } else {
     body = acts.map(function(a) {
       var m = MISSION_BY_ID[a.mission];
-      return '<div style="padding:8px 0;border-bottom:1px solid var(--line-soft);cursor:pointer" onclick="closeActionsRecapModal();openActionModal(\'' + a.id + '\')">' +
+      return '<div style="padding:8px 0;border-bottom:1px solid var(--line-soft);cursor:pointer" onclick="closeActionsRecapModal();openActionModal(\'' + a.id + '\',\'planification\')">' +
         '<div style="font-weight:600;font-size:12.5px">' + escapeHtml(a.titre) + '</div>' +
         '<div style="font-size:11px;color:var(--ink-mute);margin-top:2px">' + escapeHtml(m ? m.short : '') + (a.echeance ? ' · échéance ' + fmt.date(a.echeance) : '') + '</div>' +
       '</div>';
@@ -7074,7 +7074,7 @@ function renderRecapEvenementsHTML() {
           + '<th style="' + thS + '">Titre</th><th style="' + thS + '">Date</th><th style="' + thS + '">Type</th>'
           + '<th style="' + thS + '">Animatrices</th><th style="' + thS + '">Actions / projets associés</th><th style="' + thS + '">Statut</th></tr></thead><tbody>';
         gEvts.forEach(function(ev) {
-          var clickFn = ev.isProjet ? "openProjetModal('" + ev.actionId + "')" : "openActionModal('" + ev.actionId + "')";
+          var clickFn = ev.isProjet ? "openProjetModal('" + ev.actionId + "','planification')" : "openActionModal('" + ev.actionId + "','planification')";
           var st = ev.done ? 'opacity:.6;text-decoration:line-through' : '';
           html += '<tr style="border-top:1px solid var(--line-soft);cursor:pointer" onclick="' + clickFn + '" onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'\'">'
             + '<td style="' + tdS + ';font-weight:600;color:var(--ink);' + st + '">' + (ev.journeePrev ? '🎯 ' : '📅 ') + escapeHtml(ev.titre) + '</td>'
@@ -7095,9 +7095,9 @@ function renderRecapEvenementsHTML() {
           + '<th style="' + thS + '">Intitulé</th><th style="' + thS + '">Date</th><th style="' + thS + '">Heure</th>'
           + '<th style="' + thS + '">Coordinatrices</th><th style="' + thS + '">Rattachée à</th><th style="' + thS + '">Statut</th></tr></thead><tbody>';
         gReu.forEach(function(r) {
-          var rClickFn = r.parentKind === 'projet' ? "openProjetModal('" + r.parentId + "')"
-            : r.parentKind === 'evenement' ? "openEvenementModal('" + r.parentId + "')"
-            : "openActionModal('" + r.parentId + "')";
+          var rClickFn = r.parentKind === 'projet' ? "openProjetModal('" + r.parentId + "','planification')"
+            : r.parentKind === 'evenement' ? "openEvenementModal('" + r.parentId + "','planification')"
+            : "openActionModal('" + r.parentId + "','planification')";
           var st = r.done ? 'opacity:.6;text-decoration:line-through' : '';
           html += '<tr style="border-top:1px solid var(--line-soft);cursor:pointer" onclick="' + rClickFn + '" onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'\'">'
             + '<td style="' + tdS + ';font-weight:600;color:var(--ink);' + st + '">📌 ' + escapeHtml(r.titre) + '</td>'
@@ -7115,7 +7115,7 @@ function renderRecapEvenementsHTML() {
         html += subHead('⏳', 'Actions sans évènement planifié', gSans.length, 'var(--bg-soft)');
         html += '<div style="padding:6px 8px">';
         gSans.forEach(function(a) {
-          html += '<div onclick="openActionModal(\'' + a.id + '\')" style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:6px;cursor:pointer;margin-bottom:2px" '
+          html += '<div onclick="openActionModal(\'' + a.id + '\',\'planification\')" style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:6px;cursor:pointer;margin-bottom:2px" '
             + 'onmouseenter="this.style.background=\'var(--bg-soft)\'" onmouseleave="this.style.background=\'\'">'
             + '<span style="width:6px;height:6px;border-radius:50%;background:var(--warn);flex-shrink:0"></span>'
             + '<span style="flex:1;font-size:12.5px;color:var(--ink)">' + escapeHtml(a.titre) + '</span>'
