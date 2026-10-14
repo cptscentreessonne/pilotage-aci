@@ -1328,7 +1328,7 @@ body.pilotage-embed .pilotage-fab-wrap { display: none !important; }
             <label>Sous-thématique</label>
             <input type="text" id="a-theme" placeholder="Ex. Médecin traitant, BPCO, HPV…" />
           </div>
-          <div class="form-field">
+          <div class="form-field" id="a-statut-field">
             <label>Statut CPTS <small id="statut-mode-label" style="font-weight:400;color:var(--ink-mute)"></small></label>
             <div style="display:flex;gap:6px;align-items:center">
               <select id="a-statut" style="flex:1" onchange="onStatutManualChange()">
@@ -1360,29 +1360,33 @@ body.pilotage-embed .pilotage-fab-wrap { display: none !important; }
           </div>
         </div>
 
-        <div class="form-section-title">Attribution <small>Pilote(s) / Co-pilote(s) / Appui — selon les fiches de mission</small></div>
+        <div class="form-section-title">Attribution <small>Pilote, co-pilote(s) et appui — modifiables à volonté · ou « Données CPAM/ARS » (aucune coordinatrice)</small></div>
         <div class="form-grid">
           <div class="form-field">
-            <label>Pilote principal (owner)</label>
-            <select id="a-owner">
+            <label>Pilote principal</label>
+            <select id="a-owner" onchange="onAttribChange()">
               <option value="">— Non attribuée —</option>
               <option value="Yayi">Yayi</option>
               <option value="Yoanna">Yoanna</option>
               <option value="Margaux">Margaux</option>
+              <option value="__cpam__">📊 Données CPAM/ARS (aucune coordinatrice)</option>
             </select>
           </div>
-          <div class="form-field">
-            <label>Co-pilotes / Appuis</label>
-            <div style="display:flex;gap:12px;align-items:center;padding-top:8px;flex-wrap:wrap">
-              <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:500;cursor:pointer">
-                <input type="checkbox" id="a-co-yayi" /> Yayi
-              </label>
-              <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:500;cursor:pointer">
-                <input type="checkbox" id="a-co-yoanna" /> Yoanna
-              </label>
-              <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:500;cursor:pointer">
-                <input type="checkbox" id="a-co-margaux" /> Margaux
-              </label>
+          <div class="form-field" id="a-roles-field">
+            <label>Autres coordinatrices <small style="font-weight:400;color:var(--ink-mute)">— co-pilote ou appui</small></label>
+            <div style="display:flex;gap:12px;align-items:center;padding-top:6px;flex-wrap:wrap">
+              <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600">Yayi
+                <select id="a-role-yayi" onchange="onAttribChange()" style="padding:4px 6px;border:1px solid var(--line);border-radius:5px;font-size:12px">
+                  <option value="">—</option><option value="Co-pilote">Co-pilote</option><option value="Appui">Appui</option><option value="Pilote" hidden>Pilote</option>
+                </select></label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600">Yoanna
+                <select id="a-role-yoanna" onchange="onAttribChange()" style="padding:4px 6px;border:1px solid var(--line);border-radius:5px;font-size:12px">
+                  <option value="">—</option><option value="Co-pilote">Co-pilote</option><option value="Appui">Appui</option><option value="Pilote" hidden>Pilote</option>
+                </select></label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600">Margaux
+                <select id="a-role-margaux" onchange="onAttribChange()" style="padding:4px 6px;border:1px solid var(--line);border-radius:5px;font-size:12px">
+                  <option value="">—</option><option value="Co-pilote">Co-pilote</option><option value="Appui">Appui</option><option value="Pilote" hidden>Pilote</option>
+                </select></label>
             </div>
           </div>
           <div class="form-field row-full" id="a-attribution-display"
@@ -3344,7 +3348,7 @@ let state = (EMBED_MODE && _pilotageParentState) ? _pilotageParentState : loadSt
       if (a.statut !== auto) { a.statut = auto; changed = true; }
     }
   });
-  if (changed || migrateReferentielV9.dirty || migrateColHpvEtudiantsV10.dirty || migrateRetourBasculeV11.dirty) { try { saveState(); } catch(e) {} }
+  if (changed || migrateReferentielV9.dirty || migrateColHpvEtudiantsV10.dirty || migrateRetourBasculeV11.dirty || migrateDonneesCPAMV12.dirty) { try { saveState(); } catch(e) {} }
 })();
 let currentView = 'dashboard';
 
@@ -3874,6 +3878,70 @@ function migrateRetourBasculeV11(st) {
   return true;
 }
 
+/* ============================================================
+   « DONNÉES CPAM/ARS » — identifiant jaune d'attribution
+   Une action dont la cible est une augmentation / diminution mesurée par la CPAM ou l'ARS n'est portée par aucune
+   coordinatrice (ni pilote, ni co-pilote, ni appui) et ne suit que le statut CPAM (pas de statut CPTS).
+   Stockage : action.donneesCPAM = true (owner '', coOwners []). L'attribution précédente, s'il y en avait une,
+   est conservée dans action.attributionAvantCPAM (aucune donnée perdue, restaurable).
+   ============================================================ */
+function isDonneesCPAM(a) { return !!(a && a.donneesCPAM); }
+// « Réalisée » : statut CPAM pour une action Données CPAM/ARS, statut CPTS sinon
+// Filtre « statut » de l'onglet Missions : une action Données CPAM/ARS se filtre sur son statut CPAM
+function missionStatutMatch(a, st) {
+  if (st === 'archive') return a.statut === 'archive';
+  if (isDonneesCPAM(a)) return a.statut !== 'archive' && (a.statutCPAM || 'a_lancer') === st;
+  return a.statut === st;
+}
+function isActionRealisee(a) { return isDonneesCPAM(a) ? a.statutCPAM === 'realise' : (a && a.statut === 'realise'); }
+var CPAM_CHIP_STYLE = 'background:#fcefa6;color:#6b5600;border:1px solid #e3c94a';
+function cpamChipHTML(big) {
+  return '<span title="Données CPAM/ARS : aucune coordinatrice — seul le statut CPAM s\'applique" style="display:inline-flex;align-items:center;gap:4px;padding:'
+    + (big ? '3px 10px' : '2px 7px') + ';border-radius:9px;font-size:' + (big ? '11.5px' : '10px') + ';font-weight:700;' + CPAM_CHIP_STYLE + '">📊 Données CPAM/ARS</span>';
+}
+
+/* MIGRATION v12 (octobre 2026) — attribue l'identifiant « Données CPAM/ARS » aux actions dont la cible est une
+   augmentation / diminution suivie par la CPAM ou l'ARS. Aucune coordinatrice sur ces actions. Non destructive :
+   l'attribution précédente est conservée dans attributionAvantCPAM. Exécutée UNE seule fois (drapeau _migrations). */
+function migrateDonneesCPAMV12(st) {
+  var FLAG = 'v12_donnees_cpam_ars';
+  var TITRES = [
+    "Progression du nombre de patients par médecin traitant",
+    "Augmentation des patients fragiles par médecin traitant (ALD, 70+, C2S)",
+    "Suivi du nombre de médecins participant au SAS",
+    "Suivi des orientations effectuées via la régulation vers les PS",
+    "Diminution du taux de passage aux urgences non suivi d'hospitalisation",
+    "Augmentation des admissions directes adressées par PS de ville",
+    "Améliorer le dépistage de la BPCO (spirométries)",
+    "Amélioration de la participation au dépistage du cancer colorectal",
+    "Amélioration de la participation au dépistage du cancer du sein",
+    "Amélioration de la participation au dépistage du cancer du col de l'utérus",
+    "Suivi du nombre de bilans de médication réalisés"
+  ];
+  if (!st || !Array.isArray(st.actions)) return false;
+  if (!st._migrations || typeof st._migrations !== 'object') st._migrations = {};
+  if (st._migrations[FLAG]) return false;
+  var now = Date.now();
+  var norm = function(t) { return String(t || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+  var set = {};
+  TITRES.forEach(function(t) { set[norm(t)] = true; });
+  st.actions.forEach(function(a) {
+    if (!a || !set[norm(a.titre)] || a.donneesCPAM) return;
+    var coords = (a.coOwners || []).slice();
+    if (a.owner || coords.length) {
+      a.attributionAvantCPAM = { owner: a.owner || '', coOwners: coords, attributionRoles: Object.assign({}, a.attributionRoles || {}) };
+    }
+    a.donneesCPAM = true;
+    a.owner = '';
+    a.coOwners = [];
+    a.attributionRoles = {};
+    a.updatedAt = now;
+  });
+  st._migrations[FLAG] = now;
+  migrateDonneesCPAMV12.dirty = true;   // sauvegarde immédiate au démarrage
+  return true;
+}
+
 function loadState() {
   try {
     const raw = storageGet(STORAGE_KEY);
@@ -3947,14 +4015,14 @@ function loadState() {
         // Migration v9 — rattrapage référentiel (ajout uniquement) + thème « Femmes / Enfants »
         migrateReferentielV9(parsed);
         migrateColHpvEtudiantsV10(parsed);   // v10 : col de l'utérus / HPV, Étudiants
-        migrateRetourBasculeV11(parsed);     // v11 : retour des évènements dans leurs fiches d'origine
+        migrateRetourBasculeV11(parsed); migrateDonneesCPAMV12(parsed);     // v11 : retour des évènements dans leurs fiches d'origine
 
         // Migration v7a — Injection des attributions selon les fiches de mission
         // pour les actions qui n'ont pas encore d'owner défini
         if (Array.isArray(parsed.actions)) {
           parsed.actions.forEach(function(a) {
             if (!a) return;
-            if (!a.owner && a.titre) {
+            if (!a.owner && a.titre && !a.donneesCPAM) {
               var attr = resolveActionAttribution(a.titre);
               if (attr.owner) {
                 a.owner = attr.owner;
@@ -4024,7 +4092,9 @@ function loadState() {
       }
     }
   } catch (e) { console.error('loadState', e); }
-  return defaultState();
+  var _ds = defaultState();
+  migrateDonneesCPAMV12(_ds);
+  return _ds;
 }
 
 /* ============================================================
@@ -5407,6 +5477,7 @@ function importJSON(event){
       migrateReferentielV9(state);
       migrateColHpvEtudiantsV10(state);
       migrateRetourBasculeV11(state);
+      migrateDonneesCPAMV12(state);
       saveState();
       showView(currentView);
       toast('📥 Sauvegarde importée : ' + file.name);
@@ -5575,7 +5646,7 @@ function calcTauxAction(action) {
   const actuelleNum = parseFloatLoose(action.indicateur.actuelle);
   if (cibleNum != null && cibleNum > 0 && actuelleNum != null) {
     tauxIndicateurs = Math.min(100, (actuelleNum / cibleNum) * 100);
-  } else if (action.statut === 'realise') {
+  } else if (isActionRealisee(action)) {
     tauxIndicateurs = 100;
   }
 
@@ -5587,7 +5658,7 @@ function calcTauxAction(action) {
 
   let global;
   if (totalWeight === 0) {
-    global = action.statut === 'realise' ? 100 : 0;
+    global = isActionRealisee(action) ? 100 : 0;
   } else {
     global = totalScore / totalWeight;
   }
@@ -5744,9 +5815,10 @@ function renderDashboard() {
   const el = document.getElementById('view-dashboard');
   const tauxGlobal = calcTauxGlobal();
   const totalActions = state.actions.filter(a => a.statut !== 'archive').length;
-  const totalRealise = state.actions.filter(a => a.statut === 'realise').length;
-  const totalEnCours = state.actions.filter(a => a.statut === 'en_cours').length;
-  const totalALancer = state.actions.filter(a => a.statut === 'a_lancer').length;
+  const totalRealise = state.actions.filter(a => !isDonneesCPAM(a) && a.statut === 'realise').length;
+  const totalEnCours = state.actions.filter(a => !isDonneesCPAM(a) && a.statut === 'en_cours').length;
+  const totalALancer = state.actions.filter(a => !isDonneesCPAM(a) && a.statut === 'a_lancer').length;
+  const totalCpamData = state.actions.filter(a => isDonneesCPAM(a) && a.statut !== 'archive').length;
 
   const totalFixe = MISSIONS.reduce((s,m) => s + m.fixe, 0);
   const totalVar  = MISSIONS.reduce((s,m) => s + m.variable, 0);
@@ -5798,7 +5870,7 @@ function renderDashboard() {
         <div class="stat-sub">
           <span class="delta-ok" style="cursor:pointer" title="Voir le détail" onclick="openActionsRecapModal('realise')">${totalRealise} réalisées</span> ·
           <span class="delta-warn" style="cursor:pointer" title="Voir le détail" onclick="openActionsRecapModal('en_cours')">${totalEnCours} en cours</span> ·
-          <span class="delta-danger" style="cursor:pointer" title="Voir le détail" onclick="openActionsRecapModal('a_lancer')">${totalALancer} à lancer</span>
+          <span class="delta-danger" style="cursor:pointer" title="Voir le détail" onclick="openActionsRecapModal('a_lancer')">${totalALancer} à lancer</span>${totalCpamData ? ' · <span style="padding:1px 7px;border-radius:9px;font-weight:700;' + CPAM_CHIP_STYLE + '" title="Données CPAM/ARS : suivies par le seul statut CPAM">📊 ' + totalCpamData + ' données CPAM/ARS</span>' : ''}
         </div>
       </div>
       <div class="stat-card s-info">
@@ -5915,7 +5987,7 @@ function renderDashboard() {
 
 function renderMissionCardHTML(m) {
   const acts = state.actions.filter(a => a.mission === m.id && a.statut !== 'archive');
-  const done = acts.filter(a => a.statut === 'realise').length;
+  const done = acts.filter(a => isActionRealisee(a)).length;
   const taux = calcTauxMission(m.id);
   const depFixe = sumDepenses(d => d.mission === m.id && d.part === 'fixe');
   const depVar  = sumDepenses(d => d.mission === m.id && d.part === 'variable');
@@ -5949,7 +6021,7 @@ function renderMissionCardHTML(m) {
 }
 
 function renderFamillePieHTML(typeFilter, label) {
-  const acts = state.actions.filter(a => a.indicateur.type === typeFilter && a.statut !== 'archive');
+  const acts = state.actions.filter(a => a.indicateur.type === typeFilter && a.statut !== 'archive' && !isDonneesCPAM(a));
   if (acts.length === 0) return `
     <div style="text-align:center;color:var(--ink-mute);font-size:12px;padding:30px">
       <div style="font-weight:600;color:var(--ink-soft);margin-bottom:6px">${label}</div>
@@ -6047,7 +6119,7 @@ function renderRecentActionsHTML() {
             <tr style="cursor:pointer" onclick="openActionModal('${a.id}')">
               <td><span class="tag" style="background:var(--${m.classe.replace('m-','m-')}-p, var(--bg-soft));color:var(--${m.classe.replace('m-','m-')}, var(--ink))">${escapeHtml(m.short)}</span></td>
               <td><strong>${escapeHtml(a.titre)}</strong>${a.theme ? '<div style="font-size:11px;color:var(--ink-mute);margin-top:2px">'+escapeHtml(a.theme)+'</div>' : ''}</td>
-              <td><span class="tag ${statutColor(a.statut)}">${fmt.statutLabel(a.statut)}</span></td>
+              <td>${isDonneesCPAM(a) ? '<span style="font-size:11px;color:var(--ink-mute);font-style:italic">— (CPAM seul)</span>' : '<span class="tag ' + statutColor(a.statut) + '">' + fmt.statutLabel(a.statut) + '</span>'}</td>
               <td><span class="tag ${statutCpamColor(a.statutCPAM)}">${fmt.statutCpamLabel(a.statutCPAM)}</span></td>
               <td class="num"><strong>${Math.round(t.global)}%</strong></td>
               <td style="font-size:11px;color:var(--ink-mute)">${fmt.dateTs(a.updatedAt)}</td>
@@ -6071,7 +6143,7 @@ function collectAlerts() {
   state.actions.forEach(a => {
     if (a.statut === 'archive') return;
     const t = calcTauxAction(a).global;
-    const lvl = urgencyLevel(a.echeance, a.statut === 'realise');
+    const lvl = urgencyLevel(a.echeance, isActionRealisee(a));
 
     // échéance
     if (lvl === 'overdue') {
@@ -6098,7 +6170,7 @@ function collectAlerts() {
     }
 
     // taux insuffisant
-    if (a.statut === 'en_cours' && t < state.seuils.tauxRetard) {
+    if (!isDonneesCPAM(a) && a.statut === 'en_cours' && t < state.seuils.tauxRetard) {
       warn.push({
         type: 'taux_faible',
         action: a,
@@ -6140,7 +6212,7 @@ function renderAlertHTML(alert) {
 /* Modale "Alertes & warnings" : accès direct à toutes les alertes en cours
    depuis la carte KPI du tableau de bord (pas seulement le top 3-5 affiché). */
 function openActionsRecapModal(statut) {
-  var acts = state.actions.filter(function(a) { return a.statut !== 'archive' && a.statut === statut; });
+  var acts = state.actions.filter(function(a) { return a.statut !== 'archive' && a.statut === statut && !isDonneesCPAM(a); });
   var titles = { realise: '✅ Actions réalisées', en_cours: '🟠 Actions en cours', a_lancer: '🔴 Actions à lancer' };
   document.getElementById('actions-recap-modal-title').textContent = titles[statut] || 'Actions';
   document.getElementById('actions-recap-modal-sub').textContent = acts.length + ' action' + (acts.length > 1 ? 's' : '');
@@ -6302,6 +6374,7 @@ function attributionBadgesHTML(a) {
   var owner = a.owner || '';
   var coOwners = a.coOwners || [];
   var roles = a.attributionRoles || {};
+  if (isDonneesCPAM(a)) return '<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">' + cpamChipHTML(false) + '</div>';
   if (!owner && !coOwners.length) return '';
   var html = '<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">';
   if (owner) {
@@ -6327,12 +6400,16 @@ var _missionFilters = { search: '', mission: '', theme: '', statut: '', type: ''
 function coordRoleOnAction(action, coord) {
   if (!coord) return null;
   if ((action.owner || '') === coord) return 'pilote';
-  if (Array.isArray(action.coOwners) && action.coOwners.indexOf(coord) >= 0) return 'appui';
+  if (Array.isArray(action.coOwners) && action.coOwners.indexOf(coord) >= 0) {
+    var rr = (action.attributionRoles || {})[coord];
+    return (rr === 'Co-pilote' || rr === 'Pilote') ? 'copilote' : 'appui';
+  }
   return null;
 }
 
 // Indique si une action n'a AUCUNE attribution (ni pilote ni appui)
 function actionHasNoAttribution(action) {
+  if (isDonneesCPAM(action)) return false;   // « Données CPAM/ARS » est une attribution à part entière
   var hasOwner = !!(action.owner && action.owner.trim());
   var hasCo = Array.isArray(action.coOwners) && action.coOwners.length > 0;
   return !hasOwner && !hasCo;
@@ -6343,6 +6420,7 @@ function actionHasNoAttribution(action) {
 function matchCoordFilter(action, filterCoord) {
   if (!filterCoord) return true;
   if (filterCoord === '__none__') return actionHasNoAttribution(action);
+  if (filterCoord === '__cpam__') return isDonneesCPAM(action);
   var parts = filterCoord.split(':');
   var coord = parts[0], role = parts[1] || '';
   var r = coordRoleOnAction(action, coord);
@@ -6400,20 +6478,24 @@ function renderMissions() {
       <select id="filter-coord" style="padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;min-width:170px" onchange="renderMissionsContent()">
         <option value="">👥 Toutes coordinatrices</option>
         <optgroup label="Yayi">
-          <option value="Yayi"${_missionFilters.coord==='Yayi'?' selected':''}>Yayi — pilote ou appui</option>
+          <option value="Yayi"${_missionFilters.coord==='Yayi'?' selected':''}>Yayi — toutes attributions</option>
           <option value="Yayi:pilote"${_missionFilters.coord==='Yayi:pilote'?' selected':''}>Yayi — pilote</option>
+          <option value="Yayi:copilote"${_missionFilters.coord==='Yayi:copilote'?' selected':''}>Yayi — co-pilote</option>
           <option value="Yayi:appui"${_missionFilters.coord==='Yayi:appui'?' selected':''}>Yayi — appui</option>
         </optgroup>
         <optgroup label="Yoanna">
-          <option value="Yoanna"${_missionFilters.coord==='Yoanna'?' selected':''}>Yoanna — pilote ou appui</option>
+          <option value="Yoanna"${_missionFilters.coord==='Yoanna'?' selected':''}>Yoanna — toutes attributions</option>
           <option value="Yoanna:pilote"${_missionFilters.coord==='Yoanna:pilote'?' selected':''}>Yoanna — pilote</option>
+          <option value="Yoanna:copilote"${_missionFilters.coord==='Yoanna:copilote'?' selected':''}>Yoanna — co-pilote</option>
           <option value="Yoanna:appui"${_missionFilters.coord==='Yoanna:appui'?' selected':''}>Yoanna — appui</option>
         </optgroup>
         <optgroup label="Margaux">
-          <option value="Margaux"${_missionFilters.coord==='Margaux'?' selected':''}>Margaux — pilote ou appui</option>
+          <option value="Margaux"${_missionFilters.coord==='Margaux'?' selected':''}>Margaux — toutes attributions</option>
           <option value="Margaux:pilote"${_missionFilters.coord==='Margaux:pilote'?' selected':''}>Margaux — pilote</option>
+          <option value="Margaux:copilote"${_missionFilters.coord==='Margaux:copilote'?' selected':''}>Margaux — co-pilote</option>
           <option value="Margaux:appui"${_missionFilters.coord==='Margaux:appui'?' selected':''}>Margaux — appui</option>
         </optgroup>
+        <option value="__cpam__"${_missionFilters.coord==='__cpam__'?' selected':''}>📊 Données CPAM/ARS</option>
         <option value="__none__"${_missionFilters.coord==='__none__'?' selected':''}>⚪ Sans attribution</option>
       </select>
       <button class="btn btn-primary" onclick="openActionModal()">＋ Nouvelle action</button>
@@ -6458,7 +6540,7 @@ function renderMissionsContent() {
   if (filterTh) {
     const acts = state.actions.filter(a => {
       if ((a.theme || '') !== filterTh) return false;
-      if (filterS && a.statut !== filterS) return false;
+      if (filterS && !missionStatutMatch(a, filterS)) return false;
       if (filterT && a.indicateur.type !== filterT) return false;
       if (!matchCoordFilter(a, filterC)) return false;
       if (filterQ && !(
@@ -6522,13 +6604,13 @@ function renderMissionsContent() {
                   <td><span class="tag tag-${a.indicateur.type === 'resultat' ? 'info' : 'neutral'}">${fmt.typeLabel(a.indicateur.type)}</span></td>
                   <td style="font-size:11.5px;color:var(--ink-soft);max-width:140px">${escapeHtml(a.indicateur.cible || '—')}</td>
                   <td>
-                    <select onchange="updateStatut('${a.id}', this.value)"
+                    ${isDonneesCPAM(a) ? '<span title="Donnees CPAM/ARS : pas de statut CPTS, seul le statut CPAM s applique" style="font-size:11px;color:var(--ink-mute);font-style:italic">— (CPAM seul)</span>' : `<select onchange="updateStatut('${a.id}', this.value)"
                       style="padding:4px 7px;border:1px solid var(--line);border-radius:5px;font-size:11.5px">
                       <option value="a_lancer" ${resolveStatut(a)==='a_lancer'?'selected':''}>À lancer</option>
                       <option value="en_cours" ${resolveStatut(a)==='en_cours'?'selected':''}>En cours</option>
                       <option value="realise"  ${resolveStatut(a)==='realise'?'selected':''}>Réalisé</option>
                       <option value="archive"  ${resolveStatut(a)==='archive'?'selected':''}>Archivé</option>
-                    </select>
+                    </select>`}
                   </td>
                   <td>
                     <select onchange="updateStatutCPAM('${a.id}', this.value)"
@@ -6574,7 +6656,7 @@ function renderMissionsContent() {
 
   missionsToShow.forEach(m => {
     let acts = state.actions.filter(a => a.mission === m.id);
-    if (filterS) acts = acts.filter(a => a.statut === filterS);
+    if (filterS) acts = acts.filter(a => missionStatutMatch(a, filterS));
     if (filterT) acts = acts.filter(a => a.indicateur.type === filterT);
     if (filterC) acts = acts.filter(a => matchCoordFilter(a, filterC));
     if (filterQ) acts = acts.filter(a =>
@@ -6664,13 +6746,13 @@ function renderMissionsContent() {
                         <td><span class="tag tag-${a.indicateur.type === 'resultat' ? 'info' : 'neutral'}">${fmt.typeLabel(a.indicateur.type)}</span></td>
                         <td style="font-size:11.5px;color:var(--ink-soft);max-width:160px">${escapeHtml(a.indicateur.cible || '—')}</td>
                         <td>
-                          <select onchange="updateStatut('${a.id}', this.value)"
+                          ${isDonneesCPAM(a) ? '<span title="Donnees CPAM/ARS : pas de statut CPTS, seul le statut CPAM s applique" style="font-size:11px;color:var(--ink-mute);font-style:italic">— (CPAM seul)</span>' : `<select onchange="updateStatut('${a.id}', this.value)"
                             style="padding:4px 7px;border:1px solid var(--line);border-radius:5px;font-size:11.5px">
                             <option value="a_lancer" ${resolveStatut(a)==='a_lancer'?'selected':''}>À lancer</option>
                             <option value="en_cours" ${resolveStatut(a)==='en_cours'?'selected':''}>En cours</option>
                             <option value="realise"  ${resolveStatut(a)==='realise'?'selected':''}>Réalisé</option>
                             <option value="archive"  ${resolveStatut(a)==='archive'?'selected':''}>Archivé</option>
-                          </select>
+                          </select>`}
                         </td>
                         <td>
                           <select onchange="updateStatutCPAM('${a.id}', this.value)"
@@ -6803,7 +6885,7 @@ function renderRecapEvenementsHTML() {
     var plan = a.planif;
     var evList = (plan && plan.evenements) ? plan.evenements : [];
     if (!evList.length) {
-      actionsSansEvt.push(a);
+      if (!isDonneesCPAM(a)) actionsSansEvt.push(a);   // les Données CPAM/ARS n'ont rien à planifier
     } else {
       evList.forEach(function(ev) {
         // Associations : titre entier de l'action source + titres des actions/projets cochés
@@ -7706,6 +7788,8 @@ function renderKanbanHTML() {
     `;
   }
 
+  // Les actions « Données CPAM/ARS » n'ont pas de statut CPTS : elles ne figurent pas dans le Kanban
+  allCards = allCards.filter(function(a) { return !isDonneesCPAM(a); });
   // Masquer les tâches archivées par défaut (sauf si l'option est activée)
   if (!_showArchivedTasks) {
     allCards = allCards.filter(function(a) { return a.statut !== 'archive'; });
@@ -9473,6 +9557,10 @@ function renderModeOp() {
       '<p>Un document ajoute depuis le Drive peut afficher « 404 » s\'il a ete renomme ou deplace apres son ajout. Connectez-vous a SharePoint (bouton <strong>&#9729;&#65039;</strong>), puis cliquez sur <strong>&#128279; Reparer les liens</strong> dans la barre du haut : l\'outil verifie chaque document, vous montre le bilan, puis met a jour les liens perimes quand vous cliquez sur <strong>Appliquer</strong>. Les documents introuvables ne sont jamais modifies.</p>' +
       '<p>Au quotidien, le bouton <strong>&#128065;</strong> d\'un document retrouve aussi automatiquement le lien a jour avant de l\'ouvrir (connexion SharePoint necessaire).</p>'
     ],
+    ['🟡 Attribution : Pilote, Co-pilote, Appui et « Donnees CPAM/ARS »',
+      '<p>Dans la fiche action (onglet Descriptif, bloc <strong>Attribution</strong>), choisissez le <strong>pilote principal</strong>, puis pour chacune des autres coordinatrices le role : <strong>Co-pilote</strong> ou <strong>Appui</strong> (ou aucun). Tout est modifiable a volonte ; les pastilles P, Co et A l\'affichent dans les tableaux.</p>' +
+      '<p>Les actions dont la cible est une augmentation ou une diminution mesuree par la CPAM ou l\'ARS se rangent sous l\'identifiant jaune <strong>&#128202; Donnees CPAM/ARS</strong> (liste deroulante du pilote). Elles n\'ont <strong>aucune coordinatrice</strong> et ne suivent que le <strong>statut CPAM</strong> : pas de statut CPTS, absentes du Kanban et des compteurs CPTS. L\'attribution precedente est conservee dans la fiche. Filtre : &laquo; Donnees CPAM/ARS &raquo; dans la liste des coordinatrices de l\'onglet Missions.</p>'
+    ],
     ['💶 Saisir une depense',
       '<p>Dans Budget mensuel, cliquez sur <strong>+ Saisir une depense</strong>. Renseignez la date, le montant, la mission, la part (fixe ou variable), le poste et le fournisseur.</p>' +
       '<p>La depense s\'integre immediatement dans le tableau mensuel et l\'onglet Equilibre financier.</p>'
@@ -10297,6 +10385,8 @@ function renderLexique() {
     ['Part variable', "Financement conditionné au niveau d'atteinte des objectifs contractuels. Peut être proratisé (*)."],
     ['Pièces à fournir', "Checklist opérationnelle d'une fiche action (Documents & liens) : documents à produire et à déposer, cochés au fur et à mesure. Distincte des livrables attendus de l'avenant."],
     ['Lien « 404 »', "Un document ouvert depuis un ancien lien « par chemin » affiche 404 s'il a été renommé ou déplacé. Le bouton « Réparer les liens » retrouve le lien à jour à partir de l'identifiant du fichier."],
+    ['Données CPAM/ARS', "Identifiant jaune d'attribution : action dont la cible (augmentation / diminution) est mesurée par la CPAM ou l'ARS. Aucune coordinatrice (ni pilote, ni co-pilote, ni appui) ; seul le statut CPAM s'applique, pas de statut CPTS."],
+    ['Co-pilote / Appui', "Rôles d'une coordinatrice sur une action, à côté du pilote principal : le co-pilote partage le pilotage, l'appui contribue sans piloter. Modifiables dans la fiche action."],
     ['PRADO', "Programme de Retour À DOmicile — dispositif de l'Assurance Maladie pour la sortie d'hospitalisation."],
     ['PS', "Professionnel de Santé."],
     ['QPV', "Quartier Prioritaire de la politique de la Ville."],
@@ -13658,37 +13748,47 @@ function renderProjetEvtLies(currentProjetId) {
   listEl.innerHTML = html;
 }
 
-/* Affiche les rôles d'attribution sous le bloc Attribution (lecture seule, info) */
-function renderAttributionDisplay(roles, owner, coOwners) {
+/* Résumé en direct de l'attribution (reflète ce qui est choisi dans la fiche) + adaptation du formulaire */
+var _ATTRIB_COORDS = ['Yayi', 'Yoanna', 'Margaux'];
+function renderAttributionDisplay() { onAttribChange(); }
+
+function onAttribChange() {
+  var ownSel = document.getElementById('a-owner');
+  if (!ownSel) return;
+  var ow = ownSel.value;
+  var isCpam = ow === '__cpam__';
+  _ATTRIB_COORDS.forEach(function(name) {
+    var sel = document.getElementById('a-role-' + name.toLowerCase());
+    if (!sel) return;
+    if (isCpam) { sel.value = ''; sel.disabled = true; }
+    else if (ow === name) { sel.value = 'Pilote'; sel.disabled = true; }
+    else { if (sel.value === 'Pilote') sel.value = ''; sel.disabled = false; }
+  });
+  var rf = document.getElementById('a-roles-field'); if (rf) rf.style.opacity = isCpam ? '.45' : '';
+  var sf = document.getElementById('a-statut-field'); if (sf) sf.style.display = isCpam ? 'none' : '';
   var el = document.getElementById('a-attribution-display');
   if (!el) return;
-  if (!roles || !Object.keys(roles).length) {
-    if (!owner && !coOwners.length) { el.style.display = 'none'; return; }
-    // Pas de rôles connus mais une attribution manuelle existe
-    var html = '<strong style="color:var(--teal-d)">Attribution actuelle :</strong> ';
-    if (owner) {
-      var co = collabColor(owner);
-      html += '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:' + co.bg + ';color:' + co.text + ';margin-right:6px">' + owner + ' (pilote)</span>';
-    }
-    coOwners.forEach(function(n) {
-      var c = collabColor(n);
-      html += '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:' + c.bg + ';color:' + c.text + ';margin-right:6px">' + n + '</span>';
-    });
-    el.innerHTML = html;
+  if (isCpam) {
+    el.innerHTML = cpamChipHTML(true) + ' <span style="margin-left:6px">Aucune coordinatrice (ni pilote, ni co-pilote, ni appui). Seul le <strong>statut CPAM</strong> s\'applique : pas de statut CPTS.</span>';
     el.style.display = '';
     return;
   }
-  // Avec rôles d'origine (depuis fiche de mission)
-  var html2 = '<strong style="color:var(--teal-d)">Rôles selon la fiche de mission :</strong> ';
-  ['Yayi','Yoanna','Margaux'].forEach(function(name) {
-    if (roles[name]) {
+  var html = '';
+  if (ow) { var c0 = collabColor(ow); html += '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:' + c0.bg + ';color:' + c0.text + ';margin-right:6px">' + ow + ' — Pilote</span>'; }
+  _ATTRIB_COORDS.forEach(function(name) {
+    if (name === ow) return;
+    var sel = document.getElementById('a-role-' + name.toLowerCase());
+    var r = sel ? sel.value : '';
+    if (r === 'Co-pilote' || r === 'Appui') {
       var c = collabColor(name);
-      html2 += '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:' + c.bg + ';color:' + c.text + ';margin-right:6px">' + name + ' — ' + roles[name] + '</span>';
+      html += '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:' + c.bg + ';color:' + c.text + ';margin-right:6px">' + name + ' — ' + r + '</span>';
     }
   });
-  el.innerHTML = html2;
+  if (!html) { el.style.display = 'none'; return; }
+  el.innerHTML = '<strong style="color:var(--teal-d)">Attribution actuelle :</strong> ' + html;
   el.style.display = '';
 }
+
 
 function openActionModal(id, tab) {
   editingActionId = id || null;
@@ -13718,11 +13818,14 @@ function openActionModal(id, tab) {
     document.getElementById('a-echeance').value = a.echeance || '';
     document.getElementById('a-description').value = a.description || '';
     // Attribution (owner / coOwners / roles)
-    document.getElementById('a-owner').value = a.owner || '';
-    document.getElementById('a-co-yayi').checked    = (a.coOwners||[]).indexOf('Yayi')    >= 0;
-    document.getElementById('a-co-yoanna').checked  = (a.coOwners||[]).indexOf('Yoanna')  >= 0;
-    document.getElementById('a-co-margaux').checked = (a.coOwners||[]).indexOf('Margaux') >= 0;
-    renderAttributionDisplay(a.attributionRoles||{}, a.owner||'', a.coOwners||[]);
+    document.getElementById('a-owner').value = a.donneesCPAM ? '__cpam__' : (a.owner || '');
+    _ATTRIB_COORDS.forEach(function(name) {
+      var sel = document.getElementById('a-role-' + name.toLowerCase());
+      var inCo = (a.coOwners || []).indexOf(name) >= 0;
+      var rl = (a.attributionRoles || {})[name];
+      sel.value = inCo ? ((rl === 'Co-pilote' || rl === 'Pilote') ? 'Co-pilote' : 'Appui') : '';
+    });
+    onAttribChange();
     document.getElementById('a-ind-libelle').value = a.indicateur.libelle || '';
     document.getElementById('a-ind-type').value = a.indicateur.type || 'resultat';
     document.getElementById('a-ind-unite').value = a.indicateur.unite || '';
@@ -13780,10 +13883,8 @@ function openActionModal(id, tab) {
     document.getElementById('a-echeance').value = '';
     document.getElementById('a-description').value = '';
     document.getElementById('a-owner').value = '';
-    document.getElementById('a-co-yayi').checked = false;
-    document.getElementById('a-co-yoanna').checked = false;
-    document.getElementById('a-co-margaux').checked = false;
-    document.getElementById('a-attribution-display').style.display = 'none';
+    _ATTRIB_COORDS.forEach(function(name) { document.getElementById('a-role-' + name.toLowerCase()).value = ''; });
+    onAttribChange();
     document.getElementById('a-ind-libelle').value = '';
     document.getElementById('a-ind-type').value = 'resultat';
     document.getElementById('a-ind-unite').value = '';
@@ -13900,16 +14001,25 @@ function saveAction() {
   const pieces = collectPieces();
 
   // Attribution depuis le modal
-  var owner = document.getElementById('a-owner').value;
+  // Pilote + rôle (co-pilote / appui) choisi pour chaque autre coordinatrice, ou « Données CPAM/ARS » (aucune coordinatrice)
+  var ownerSel = document.getElementById('a-owner').value;
+  var isCpam = ownerSel === '__cpam__';
+  var owner = isCpam ? '' : ownerSel;
   var coOwners = [];
-  if (document.getElementById('a-co-yayi').checked    && owner !== 'Yayi')    coOwners.push('Yayi');
-  if (document.getElementById('a-co-yoanna').checked  && owner !== 'Yoanna')  coOwners.push('Yoanna');
-  if (document.getElementById('a-co-margaux').checked && owner !== 'Margaux') coOwners.push('Margaux');
-  // Préserver les rôles existants si la fiche en avait
   var attributionRoles = {};
-  if (existingId) {
-    var existing = state.actions.find(function(x){ return x.id === existingId; });
-    if (existing && existing.attributionRoles) attributionRoles = existing.attributionRoles;
+  if (!isCpam) {
+    if (owner) attributionRoles[owner] = 'Pilote';
+    _ATTRIB_COORDS.forEach(function(name) {
+      if (name === owner) return;
+      var rl = document.getElementById('a-role-' + name.toLowerCase()).value;
+      if (rl === 'Co-pilote' || rl === 'Appui') { coOwners.push(name); attributionRoles[name] = rl; }
+    });
+  }
+  // Conserver (ou créer) la sauvegarde de l'attribution d'avant « Données CPAM/ARS »
+  var existingAct = existingId ? state.actions.find(function(x){ return x.id === existingId; }) : null;
+  var attributionAvantCPAM = existingAct ? existingAct.attributionAvantCPAM : undefined;
+  if (isCpam && existingAct && !existingAct.donneesCPAM && (existingAct.owner || (existingAct.coOwners || []).length)) {
+    attributionAvantCPAM = { owner: existingAct.owner || '', coOwners: (existingAct.coOwners || []).slice(), attributionRoles: Object.assign({}, existingAct.attributionRoles || {}) };
   }
 
   const actionData = {
@@ -13924,6 +14034,8 @@ function saveAction() {
     owner: owner,
     coOwners: coOwners,
     attributionRoles: attributionRoles,
+    donneesCPAM: isCpam,
+    attributionAvantCPAM: attributionAvantCPAM,
     indicateur: {
       libelle:  document.getElementById('a-ind-libelle').value.trim(),
       type:     document.getElementById('a-ind-type').value,
