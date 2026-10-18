@@ -3496,7 +3496,7 @@ function pilotageUnregisterEmbedWindow(iframeEl) {
   if (idx !== -1) _pilotageEmbeds.splice(idx, 1);
 }
 function notifyEmbeds() {
-  _pilotageEmbeds.forEach(function(iframeEl) {
+  (_pilotageEmbeds || []).forEach(function(iframeEl) {
     try {
       var w = iframeEl.contentWindow;
       if (w && typeof w.__pilotageOnParentChange === 'function') w.__pilotageOnParentChange();
@@ -4379,8 +4379,8 @@ function loadState() {
         // Table des suppressions (pierres tombales) pour la fusion multi-utilisatrices
         if (!parsed._deleted || typeof parsed._deleted !== 'object') parsed._deleted = {};
         if (!parsed._deletedTasks || typeof parsed._deletedTasks !== 'object') parsed._deletedTasks = {};
-        // Nettoyage : retirer les pierres tombales de plus de 30 jours (évite la croissance infinie)
-        var _cutoff = Date.now() - 30*24*3600*1000;
+        // Nettoyage : retirer les pierres tombales de plus d'un an (elles sont minuscules ; les garder longtemps évite qu'une ancienne copie fasse réapparaître un élément supprimé)
+        var _cutoff = Date.now() - 365*24*3600*1000;
         Object.keys(parsed._deleted).forEach(function(id){
           if (parsed._deleted[id] < _cutoff) delete parsed._deleted[id];
         });
@@ -5391,6 +5391,7 @@ function mergeStates(localState, remoteState) {
   merged.evenements   = mergeEntityList(localState.evenements, remoteState.evenements, deletedMap, deletedTasks);
   merged.jalons       = mergeEntityList(localState.jalons, remoteState.jalons, deletedMap);
   merged.recettes     = mergeEntityList(localState.recettes, remoteState.recettes, deletedMap);
+  merged.depenses     = mergeEntityList(localState.depenses, remoteState.depenses, deletedMap);
   merged.orga_interne = mergeOrgaInterne(localState.orga_interne, remoteState.orga_interne, deletedMap, deletedTasks);
   merged.collabs      = mergeEntityList(localState.collabs, remoteState.collabs, deletedMap);
   merged.commu        = mergeEntityList(localState.commu, remoteState.commu, deletedMap);
@@ -5479,6 +5480,18 @@ function aTs(a) {
   if (!a) return 0;
   if (a.updatedAt) return typeof a.updatedAt === 'number' ? a.updatedAt : new Date(a.updatedAt).getTime();
   return 0;
+}
+
+// Retire une tâche supprimée de la planification de sa fiche (réunions / tâches d'évènement) : les tâches d'une fiche
+// sont recalculées depuis sa planification ; sans ce nettoyage, la tâche supprimée reviendrait à la prochaine ouverture.
+function purgeTaskFromPlanif(entity, taskId) {
+  if (!entity || !entity.planif || !taskId) return;
+  var pl = entity.planif;
+  if (Array.isArray(pl.reunions)) pl.reunions = pl.reunions.filter(function(r) { return r.id !== taskId; });
+  if (Array.isArray(pl.evenements)) pl.evenements.forEach(function(ev) {
+    if (Array.isArray(ev.tasks)) ev.tasks = ev.tasks.filter(function(t) { return t.id !== taskId; });
+  });
+  markTaskDeleted(taskId);
 }
 
 // Enregistre une suppression d'entité (pierre tombale) pour qu'elle soit respectée à la fusion
@@ -7773,6 +7786,7 @@ function deleteTask(aId, tId) {
   if (!confirm('Supprimer cette tâche ?')) return;
   const a = state.actions.find(x => x.id === aId); if (!a) return;
   a.tasks = (a.tasks||[]).filter(t => t.id !== tId);
+  purgeTaskFromPlanif(a, tId);   // pierre tombale + retrait de la planification (sinon la tâche reviendrait)
   a.updatedAt = Date.now(); saveState(); renderSuiviContent();
   toast('Tâche supprimée');
 }
@@ -7804,6 +7818,7 @@ function reporterTachesEnRetard() {
         const oldDue = t.due;
         t.reportedFrom = oldDue;
         t.due = newDue;
+        syncTaskBack({ action: a, parent: a }, t);
         count++;
       }
     });
@@ -8835,6 +8850,19 @@ function onAgendaMonthToggle(monthIdx, isOpen) {
   _agendaMonthsOpen[monthIdx] = isOpen;
 }
 
+// Vrai (et filtre remis sur « Toutes ») si la tâche qu'on vient de créer/modifier serait masquée par le filtre actif de l'agenda
+function agendaEnsureVisible(coords, isUrgence) {
+  var f = _agendaFilter || '';
+  if (!f) return false;
+  var visible;
+  if (f === '__urgences__') visible = !!isUrgence;
+  else if (f === '__ensemble__') visible = (coords || []).length >= 3;
+  else visible = (coords || []).indexOf(f) >= 0;
+  if (visible) return false;
+  setAgendaFilter('');
+  return true;
+}
+
 function setAgendaFilter(val) {
   _agendaFilter = val;
   // Mettre à jour le style des boutons
@@ -8872,14 +8900,14 @@ function deleteTaskFromAgenda(payloadJson) {
     done = true;
   } else if (item.type === 'task' && item.actionId && item.taskId) {
     var a = (state.actions||[]).find(function(x){ return x.id === item.actionId; });
-    if (a && a.tasks) { a.tasks = a.tasks.filter(function(t){ return t.id !== item.taskId; }); a.updatedAt = Date.now(); markTaskDeleted(item.taskId); done = true; }
+    if (a && a.tasks) { a.tasks = a.tasks.filter(function(t){ return t.id !== item.taskId; }); purgeTaskFromPlanif(a, item.taskId); a.updatedAt = Date.now(); markTaskDeleted(item.taskId); done = true; }
   } else if (item.type === 'horsaci' && item.taskId) {
     if (item.horsAciType === 'projet') {
       var p = (state.projets||[]).find(function(x){ return x.id === item.parentId; });
-      if (p && p.tasks) { p.tasks = p.tasks.filter(function(t){ return t.id !== item.taskId; }); p.updatedAt = Date.now(); markTaskDeleted(item.taskId); done = true; }
+      if (p && p.tasks) { p.tasks = p.tasks.filter(function(t){ return t.id !== item.taskId; }); purgeTaskFromPlanif(p, item.taskId); p.updatedAt = Date.now(); markTaskDeleted(item.taskId); done = true; }
     } else if (item.horsAciType === 'evenement') {
       var e = (state.evenements||[]).find(function(x){ return x.id === item.parentId; });
-      if (e && e.tasks) { e.tasks = e.tasks.filter(function(t){ return t.id !== item.taskId; }); e.updatedAt = Date.now(); markTaskDeleted(item.taskId); done = true; }
+      if (e && e.tasks) { e.tasks = e.tasks.filter(function(t){ return t.id !== item.taskId; }); purgeTaskFromPlanif(e, item.taskId); e.updatedAt = Date.now(); markTaskDeleted(item.taskId); done = true; }
     } else if (item.horsAciType === 'orga') {
       var c = (state.orga_interne||[]).find(function(x){ return x.id === item.parentId; });
       if (c && c.tasks) { c.tasks = c.tasks.filter(function(t){ return t.id !== item.taskId; }); c.updatedAt = Date.now(); markTaskDeleted(item.taskId); done = true; }
@@ -9881,6 +9909,7 @@ function saveReglages() {
 
 function resetDepenses() {
   if (!confirm('Effacer TOUTES les dépenses ? Cette action est irréversible.')) return;
+  (state.depenses || []).forEach(function(d) { markDeleted(d.id); });   // pierres tombales
   state.depenses = []; saveState(); renderBudget();
   toast('Dépenses effacées');
 }
@@ -11597,7 +11626,8 @@ function addCommuSupport() {
     datePublication: '',
     phases: { production: false, relecture: false, validation: false, publication: false, diffusion: false },
     dates:  { production: '', relecture: '', validation: '', publication: '', diffusion: '' },
-    note: ''
+    note: '',
+    createdAt: Date.now(), updatedAt: Date.now()
   });
   saveState();
   renderCommuTable();
@@ -11608,6 +11638,7 @@ function toggleCommuPhase(id, phase, checked) {
   if (!state.commu) return;
   var s = state.commu.find(function(x) { return x.id === id; });
   if (!s) return;
+  s.updatedAt = Date.now();
   s.phases[phase] = checked;
   if (!s.dates) s.dates = {};
   s.dates[phase] = checked ? new Date().toISOString().slice(0, 10) : '';
@@ -11625,6 +11656,7 @@ function updateCommuField(id, field, value) {
   var s = state.commu.find(function(x) { return x.id === id; });
   if (!s) return;
   s[field] = value;
+  s.updatedAt = Date.now();
   if (field === 'label') syncCommuDocLabel(s);
   saveState();
   // Pas de re-render complet pour les champs texte/select inline
@@ -11796,6 +11828,7 @@ function pickCommuDoc(id, actionId) {
     if (!first) return;      // un seul document par communication
     first = false;
     s.doc = { name: picked.name, url: picked.webUrl, fileId: picked.id, driveId: picked.driveId || '', linkId: (s.doc && s.doc.linkId) || makeId('lnk') };
+    s.updatedAt = Date.now();
     commuPlaceDocRow(s);
     saveState();
     renderActionCommuList(actionId);
@@ -11807,6 +11840,7 @@ function detachCommuDoc(id, actionId) {
   var s = (state.commu || []).find(function(x){ return x.id === id; });
   if (!s) return;
   s.doc = null;
+  s.updatedAt = Date.now();
   document.querySelectorAll('#links-list .link-row[data-commu-id="' + id + '"]').forEach(function(r){
     if (!r.querySelector('.link-url').value.trim()) r.remove();   // ligne vide : rien à conserver
     else r.removeAttribute('data-commu-id');                       // document conservé comme simple lien
@@ -11852,7 +11886,8 @@ function addCommuSupportFromAction(actionId) {
     phases: { production: false, relecture: false, validation: false, publication: false, diffusion: false },
     dates:  { production: '', relecture: '', validation: '', publication: '', diffusion: '' },
     note: '',
-    actionId: actionId
+    actionId: actionId,
+    createdAt: Date.now(), updatedAt: Date.now()
   });
   if (typeof appendLinkRow === 'function') appendLinkRow({ id: makeId('lnk'), label: '📣 ' + label, url: '', commuId: newId });
   saveState();
@@ -12112,9 +12147,14 @@ function openJalonModal(dateStr, jalonId) {
     var jVisioEl2 = document.getElementById('j-visio'); if (jVisioEl2) jVisioEl2.value = '';
     toggleVisioBtn('j-visio','j-visio-join');
     var radios2 = document.querySelectorAll('input[name="j-type"]');
-    radios2.forEach(function(r){ r.checked = (r.value === 'normal'); });
+    // Valeurs par défaut cohérentes avec le filtre de l'agenda (sinon la tâche créée serait aussitôt masquée)
+    var _defType = (_agendaFilter === '__urgences__') ? 'urgence' : 'normal';
+    radios2.forEach(function(r){ r.checked = (r.value === _defType); });
+    var _defAttr = ['Yayi'];
+    if (['Yayi', 'Yoanna', 'Margaux'].indexOf(_agendaFilter) >= 0) _defAttr = [_agendaFilter];
+    else if (_agendaFilter === '__ensemble__') _defAttr = ['Yayi', 'Yoanna', 'Margaux'];
     var attrChecks2 = document.querySelectorAll('input[name="j-attribue"]');
-    attrChecks2.forEach(function(r){ r.checked = (r.value === 'Yayi'); });
+    attrChecks2.forEach(function(r){ r.checked = (_defAttr.indexOf(r.value) >= 0); });
   }
   // Charger la to-do list
   _jalonDraftSubtasks = [];
@@ -12187,8 +12227,9 @@ function saveJalon() {
       if (existingId) { markDeleted(existingId); state.jalons = (state.jalons||[]).filter(function(j){ return j.id !== existingId; }); }
       saveState();
       closeJalonModal();
+      var _fr = agendaEnsureVisible(coords, false);
       if (currentView === 'planning') renderPlanningInner();
-      toast('✅ Tâche rattachée et migrée dans sa fiche');
+      toast('✅ Tâche rattachée et migrée dans sa fiche' + (_fr ? ' · filtre de l\'agenda remis sur « Toutes »' : ''));
       return;
     }
   }
@@ -12219,9 +12260,10 @@ function saveJalon() {
 
   saveState();
   closeJalonModal();
+  var _fr2 = agendaEnsureVisible(coords, type === 'urgence');
   if (currentView === 'planning' && planningView === 'agenda') renderPlanningInner();
   else if (currentView === 'planning') renderPlanningInner();
-  toast(existingId ? '📍 Tâche mise à jour' : '📍 Tâche ajoutée — ' + fmt.date(deadline));
+  toast((existingId ? '📍 Tâche mise à jour' : '📍 Tâche ajoutée — ' + fmt.date(deadline)) + (_fr2 ? ' · filtre de l\'agenda remis sur « Toutes »' : ''));
 }
 
 // Construit une réunion (planif.reunions) à partir d'une tâche saisie dans l'agenda
@@ -12280,12 +12322,14 @@ function migrateJalonToFiche(cat, cibleId, taskData) {
         if (!ev.tasks) ev.tasks = [];
         ev.tasks.push(newTask);
         reaggregateActionTasks(action);
+        action.updatedAt = Date.now();
         return true;
       }
     }
     // Par défaut → Réunions et tâches
     action.planif.reunions.push(jalonToReunion(taskData));
     reaggregateActionTasks(action);
+    action.updatedAt = Date.now();
     return true;
   } else if (cat === 'projet') {
     var projet = (state.projets||[]).find(function(p){ return p.id === cibleId; });
@@ -12299,11 +12343,13 @@ function migrateJalonToFiche(cat, cibleId, taskData) {
         if (!pev.tasks) pev.tasks = [];
         pev.tasks.push(newTask);
         reaggregateProjetTasks(projet);
+        projet.updatedAt = Date.now();
         return true;
       }
     }
     projet.planif.reunions.push(jalonToReunion(taskData));
     reaggregateProjetTasks(projet);
+    projet.updatedAt = Date.now();
     return true;
   } else if (cat === 'evenement') {
     var evenement = (state.evenements||[]).find(function(e){ return e.id === cibleId; });
@@ -12315,12 +12361,14 @@ function migrateJalonToFiche(cat, cibleId, taskData) {
     var r = jalonToReunion(taskData);
     evenement.planif.reunions.push(r);
     evenement.tasks.push(reunionToTask(r));
+    evenement.updatedAt = Date.now();
     return true;
   } else if (cat === 'orga') {
     var ocat = (state.orga_interne||[]).find(function(c){ return c.id === cibleId; });
     if (!ocat) return false;
     if (!ocat.tasks) ocat.tasks = [];
     ocat.tasks.push(newTask);
+    ocat.updatedAt = Date.now();
     return true;
   }
   return false;
@@ -12494,6 +12542,7 @@ function agendaDrop(event, newDate) {
     if (!task) return;
     var oldDate = task.due;
     task.due = newDate;
+    syncTaskBack({ action: action, parent: action }, task);   // répercute dans la planification + marque la fiche modifiée
     saveState();
     if (currentView === 'planning') renderPlanningInner();
     toast('✅ Tâche déplacée au ' + fmt.date(newDate));
@@ -12509,11 +12558,11 @@ function agendaDrop(event, newDate) {
     if (!haParent) return;
     if (haTaskId) {
       var haTask = (haParent.tasks||[]).find(function(t){return t.id===haTaskId;});
-      if (haTask) { haTask.due = newDate; saveState(); if (currentView==='planning') renderPlanningInner(); toast('🚀 Tâche déplacée au ' + fmt.date(newDate)); }
+      if (haTask) { haTask.due = newDate; syncTaskBack({ action: null, parent: haParent }, haTask); saveState(); if (currentView==='planning') renderPlanningInner(); toast('🚀 Tâche déplacée au ' + fmt.date(newDate)); }
     } else {
       // Déplacer la date du parent (fin de projet ou date d'évènement)
-      if (haType === 'projet' && haParent.fin) { haParent.fin = newDate; saveState(); if (currentView==='planning') renderPlanningInner(); toast('🚀 Échéance déplacée au ' + fmt.date(newDate)); }
-      if (haType === 'evenement' && haParent.date) { haParent.date = newDate; saveState(); if (currentView==='planning') renderPlanningInner(); toast('🎉 Évènement déplacé au ' + fmt.date(newDate)); }
+      if (haType === 'projet' && haParent.fin) { haParent.fin = newDate; haParent.updatedAt = Date.now(); saveState(); if (currentView==='planning') renderPlanningInner(); toast('🚀 Échéance déplacée au ' + fmt.date(newDate)); }
+      if (haType === 'evenement' && haParent.date) { haParent.date = newDate; haParent.updatedAt = Date.now(); saveState(); if (currentView==='planning') renderPlanningInner(); toast('🎉 Évènement déplacé au ' + fmt.date(newDate)); }
     }
 
   } else if (_agendaDragJalonId) {
@@ -12522,6 +12571,7 @@ function agendaDrop(event, newDate) {
     if (!jalon) return;
     var oldDateJ = jalon.date;
     jalon.date = newDate;
+    jalon.updatedAt = Date.now();
     saveState();
     if (currentView === 'planning') renderPlanningInner();
     toast('📍 Tâche déplacée du ' + fmt.date(oldDateJ) + ' au ' + fmt.date(newDate));
@@ -12916,6 +12966,7 @@ function addJalonSubTask() {
     if (!j) return;
     if (!j.subtasks) j.subtasks = [];
     j.subtasks.push({ id: makeId('st'), label: label, done: false, doneAt: '' });
+    j.updatedAt = Date.now();
     saveState();
   } else {
     // Tâche pas encore enregistrée : on ajoute au buffer brouillon
@@ -12940,7 +12991,7 @@ function toggleJalonSubtask(stId, checked) {
   if (!st) return;
   st.done = checked;
   st.doneAt = checked ? new Date().toISOString().slice(0,10) : '';
-  if (jalonId) saveState();
+  if (jalonId) { var _jx = (state.jalons||[]).find(function(x){ return x.id === jalonId; }); if (_jx) _jx.updatedAt = Date.now(); saveState(); }
   renderJalonSubtasks(jalonId || null);
 }
 
@@ -12950,6 +13001,7 @@ function deleteJalonSubtask(stId) {
     var j = (state.jalons||[]).find(function(x){ return x.id === jalonId; });
     if (!j || !j.subtasks) return;
     j.subtasks = j.subtasks.filter(function(s){ return s.id !== stId; });
+    j.updatedAt = Date.now();
     saveState();
   } else {
     _jalonDraftSubtasks = _jalonDraftSubtasks.filter(function(s){ return s.id !== stId; });
@@ -14787,7 +14839,8 @@ function saveCollab() {
     id, name,
     role: document.getElementById('c-role').value.trim(),
     email: document.getElementById('c-email').value.trim(),
-    temporaire: document.getElementById('c-temporaire').checked
+    temporaire: document.getElementById('c-temporaire').checked,
+    updatedAt: Date.now()
   };
   if (existingId) {
     const idx = state.collabs.findIndex(x => x.id === existingId);
@@ -14978,7 +15031,8 @@ function saveDepense() {
     fournisseur: document.getElementById('d-fournisseur').value.trim(),
     note: document.getElementById('d-note').value.trim(),
     doc: _depenseDoc || null,
-    createdAt: existingId ? (state.depenses.find(x=>x.id===existingId)||{}).createdAt||Date.now() : Date.now()
+    createdAt: existingId ? (state.depenses.find(x=>x.id===existingId)||{}).createdAt||Date.now() : Date.now(),
+    updatedAt: Date.now()
   };
 
   if (existingId) {
@@ -14997,6 +15051,7 @@ function deleteDepense(id) {
   const did = id || editingDepenseId;
   if (!did) return;
   if (!confirm('Supprimer cette dépense ?')) return;
+  markDeleted(did);   // pierre tombale : empêche la réapparition à la synchro
   state.depenses = state.depenses.filter(d => d.id !== did);
   saveState();
   if (id) { renderBudget(); }
