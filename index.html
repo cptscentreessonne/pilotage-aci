@@ -3346,6 +3346,7 @@ if (EMBED_MODE) {
   } catch(e) { console.warn('Pilotage embed: impossible de lire l\'état parent', e); }
 }
 const MAX_SNAPSHOTS = 30;
+const APP_VERSION = '2026-10-20-sync2';   // version de l'outil : signée dans chaque envoi SharePoint (cf. « 🩺 Synchro »)
 
 const USE_LS = (() => {
   try { localStorage.setItem('__t__','1'); localStorage.removeItem('__t__'); return true; }
@@ -5592,6 +5593,12 @@ async function spSaveData(data) {
     }
     toSave.meta = toSave.meta || {};
     toSave.meta.savedAt = new Date().toISOString();
+    // Signature de CET envoi (qui, quelle version de l'outil) : une ancienne version de l'outil ne la met pas à jour,
+    // ce qui permet de repérer un poste qui écrit avec une version périmée (voir « 🩺 Synchro »)
+    try {
+      var _acc = (_msalInstance && _msalInstance.getAllAccounts && _msalInstance.getAllAccounts()[0]) || null;
+      toSave.meta.signature = { user: (_acc && (_acc.name || _acc.username)) || '', ver: APP_VERSION, savedAt: toSave.meta.savedAt };
+    } catch(e) { toSave.meta.signature = { user: '', ver: APP_VERSION, savedAt: toSave.meta.savedAt }; }
     var content = JSON.stringify(toSave);
     // 2. Écrire le fichier fusionné
     var putResp = await spAuthFetch(
@@ -5902,6 +5909,7 @@ function buildDiagSync() {
   var connected = !!(_spEnabled && _spToken);
   var html = '<table style="width:100%;border-collapse:collapse;font-size:12.5px">';
   html += row('Adresse utilisée', escapeHtml(location.href.split('?')[0]));
+  html += row('Version de l\u2019outil sur cette page', escapeHtml(APP_VERSION));
   html += row('Connexion Microsoft 365 / SharePoint', connected ? 'Connectée' + (document.getElementById('sp-user-display') && document.getElementById('sp-user-display').textContent ? ' · ' + escapeHtml(document.getElementById('sp-user-display').textContent) : '') : 'NON connectée : seules les données locales de ce navigateur sont affichées', connected ? okC : koC);
   html += row('Dernier échange réussi avec SharePoint', _spLastOkAt ? diagFmt(_spLastOkAt) : 'aucun depuis l’ouverture de cette page', _spLastOkAt ? okC : koC);
   html += row('Modifications en attente d’envoi', _spUnsynced ? 'oui' : 'non', _spUnsynced ? koC : okC);
@@ -5926,6 +5934,9 @@ async function diagCompare() {
   _diagCmpHtml = '<div style="font-size:12px">Lecture de SharePoint…</div>'; buildDiagSync();
   try {
     var remote = await spFetchRemoteState();
+    var sg = (remote.meta && remote.meta.signature) || null, sigHtml;
+    if (sg && sg.savedAt === (remote.meta || {}).savedAt) sigHtml = '<div style="margin-bottom:8px;font-size:12.5px">Dernier envoi sur SharePoint : <b>' + escapeHtml(diagFmt(new Date(remote.meta.savedAt).getTime())) + '</b> par <b>' + escapeHtml(sg.user || '?') + '</b> · version de l\u2019outil <b>' + escapeHtml(sg.ver || '?') + '</b>' + (sg.ver === APP_VERSION ? '' : ' <span style="color:#b03030">(≠ version de cette page : ' + escapeHtml(APP_VERSION) + ')</span>') + '</div>';
+    else sigHtml = '<div style="margin-bottom:8px;font-size:12.5px;color:#b03030;font-weight:600">⚠ Le dernier envoi sur SharePoint (' + escapeHtml(remote.meta && remote.meta.savedAt ? diagFmt(new Date(remote.meta.savedAt).getTime()) : '?') + ') ne porte pas la signature de la version à jour : il vient d\u2019un poste qui utilise une ANCIENNE version de l\u2019outil (page en cache, ancien lien ou ancien fichier). Ce poste peut écraser des saisies : le fermer et ouvrir l\u2019outil depuis le lien à jour (Ctrl+F5).</div>';
     var ts = function(e) { if (!e) return 0; var v = e.updatedAt || e.createdAt || 0; return typeof v === 'number' ? v : new Date(v).getTime(); };
     var sig = function(e) { var c = Object.assign({}, e); delete c.updatedAt; return JSON.stringify(c); };
     var lists = [['actions','Fiches ACI'],['projets','Projets'],['evenements','Évènements hors ACI'],['jalons','Agenda'],['depenses','Dépenses'],['recettes','Recettes'],['collabs','Collaborateurs'],['commu','Communication'],['orga_interne','Gestion interne']];
@@ -5942,9 +5953,9 @@ async function diagCompare() {
         if (what) { total++; lines.push('<tr><td style="padding:3px 8px;color:var(--ink-mute)">' + L[1] + '</td><td style="padding:3px 8px">' + escapeHtml(String(lab).slice(0, 80)) + '</td><td style="padding:3px 8px;font-weight:600">' + what + '</td></tr>'); }
       });
     });
-    _diagCmpHtml = total === 0
+    _diagCmpHtml = sigHtml + (total === 0
       ? '<div style="color:#1f7a4b;font-weight:600">✅ Ce navigateur et SharePoint sont identiques (' + escapeHtml(diagFmt(Date.now())) + ').</div>'
-      : '<div style="font-weight:600;margin-bottom:6px">' + total + ' élément(s) diffèrent :</div><table style="width:100%;border-collapse:collapse;font-size:12px">' + lines.slice(0, 60).join('') + '</table>' + (total > 60 ? '<div style="font-size:11.5px;color:var(--ink-mute)">… et ' + (total - 60) + ' autres</div>' : '') + '<div style="font-size:11.5px;color:var(--ink-mute);margin-top:6px">La synchronisation automatique (toutes les 20 s) fusionne ces écarts : la version la plus récente de chaque fiche est conservée.</div>';
+      : '<div style="font-weight:600;margin-bottom:6px">' + total + ' élément(s) diffèrent :</div><table style="width:100%;border-collapse:collapse;font-size:12px">' + lines.slice(0, 60).join('') + '</table>' + (total > 60 ? '<div style="font-size:11.5px;color:var(--ink-mute)">… et ' + (total - 60) + ' autres</div>' : '') + '<div style="font-size:11.5px;color:var(--ink-mute);margin-top:6px">La synchronisation automatique (toutes les 20 s) fusionne ces écarts : la version la plus récente de chaque fiche est conservée.</div>');
   } catch(e) { _diagCmpHtml = '<div style="color:#b03030;font-weight:600">Comparaison impossible : ' + escapeHtml(e.message) + '</div>'; }
   buildDiagSync();
 }
